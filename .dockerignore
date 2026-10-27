@@ -1,0 +1,24 @@
+# Dependencias y artefactos: se instalan/compilan dentro de la imagen.
+**/node_modules
+**/dist
+**/.git
+**/.DS_Store
+
+# Entornos locales: las variables se inyectan en EasyPanel, no en la imagen.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Caché y logs
+**/*.log
+**/.vite
+**/coverage
+**/.turbo
+
+# Carpeta front (no se despliega en esta imagen; la API sirve "admin").
+front
+
+# El propio Dockerfile y notas
+Dockerfile
+.dockerignore
+README*.md
