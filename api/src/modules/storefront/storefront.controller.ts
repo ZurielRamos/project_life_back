@@ -32,14 +32,20 @@ export class StorefrontController {
   /**
    * Resuelve la tienda a partir del host de la petición (subdominio del
    * dominio base o dominio propio). El front lo llama con el `Host` que
-   * recibió. Solo expone configuración pública de tiendas activas.
+   * recibió. Como alternativa para desarrollo y previews acepta `slug`.
+   * Solo expone configuración pública de tiendas activas.
    */
   @Get('store')
-  async getStoreByHost(@Query('host') host?: string) {
-    if (!host?.trim()) {
-      throw new BadRequestException('Falta el parámetro host');
+  async getStoreByHost(
+    @Query('host') host?: string,
+    @Query('slug') slug?: string,
+  ) {
+    if (!host?.trim() && !slug?.trim()) {
+      throw new BadRequestException('Falta el parámetro host o slug');
     }
-    const store = await this.storesService.findPublicByHost(host);
+    const store = host?.trim()
+      ? await this.storesService.findPublicByHost(host)
+      : await this.storesService.findPublicBySlug(slug as string);
     if (!store) {
       throw new NotFoundException('Tienda no encontrada');
     }

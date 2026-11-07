@@ -26,7 +26,6 @@ export const RESERVED_STORE_SLUGS: ReadonlySet<string> = new Set([
   'status',
   'support',
   'help',
-  'tienda',
   'tiendas',
   'store',
   'stores',

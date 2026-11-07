@@ -230,6 +230,15 @@ export class StoresService {
     return store ? this.toPublic(store) : null;
   }
 
+  /**
+   * Configuración pública de una tienda ACTIVA por slug. Lo usa el front en
+   * entornos sin dominio de tienda (desarrollo, previews).
+   */
+  async findPublicBySlug(slug: string): Promise<PublicStore | null> {
+    const store = await this.findActiveBySlug(slug);
+    return store ? this.toPublic(store) : null;
+  }
+
   /** Tienda activa por slug (para filtrar el catálogo público). */
   async findActiveBySlug(slug: string): Promise<Store | null> {
     return this.storesRepository.findOne({
