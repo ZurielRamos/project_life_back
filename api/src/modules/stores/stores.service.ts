@@ -8,13 +8,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Design } from '../designs/entities/design.entity';
 import { Product } from '../products/entities/product.entity';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { Store } from './entities/store.entity';
 import { RESERVED_STORE_SLUGS } from './reserved-slugs';
+import {
+  mergeSiteConfig,
+  resolveSiteConfig,
+  type SiteConfig,
+} from './site-config';
+import { StoreDomainsService } from './store-domains.service';
 
 /** Tienda sin relaciones pesadas: solo los ids del catálogo asignado. */
-export type StoreView = Omit<Store, 'products' | 'designs'> & {
+export type StoreView = Omit<Store, 'products' | 'designs' | 'siteConfig'> & {
+  /** Configuración del sitio ya resuelta (con valores por defecto). */
+  siteConfig: SiteConfig;
   productIds: string[];
   designIds: string[];
   /** URL pública por subdominio (null si no hay STORES_BASE_DOMAIN). */
@@ -22,7 +31,10 @@ export type StoreView = Omit<Store, 'products' | 'designs'> & {
 };
 
 /** Fila de listado: tienda con contadores. */
-export type StoreSummary = Omit<Store, 'products' | 'designs'> & {
+export type StoreSummary = Omit<
+  Store,
+  'products' | 'designs' | 'siteConfig'
+> & {
   productCount: number;
   designCount: number;
   publicUrl: string | null;
@@ -47,6 +59,8 @@ export interface PublicStore {
   seoTitle: string | null;
   seoDescription: string | null;
   publicUrl: string | null;
+  /** Configuración del sitio (apariencia y contenido) ya resuelta. */
+  site: SiteConfig;
 }
 
 @Injectable()
@@ -60,6 +74,8 @@ export class StoresService {
     private readonly designsRepository: Repository<Design>,
     private readonly dataSource: DataSource,
     private readonly config: ConfigService,
+    private readonly domainsService: StoreDomainsService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
 
   /** Dominio base de las tiendas (ej. "inkttex.com"), en minúsculas. */
@@ -75,13 +91,11 @@ export class StoresService {
   async create(dto: CreateStoreDto): Promise<StoreView> {
     const slug = dto.slug.trim().toLowerCase();
     this.assertSlugAllowed(slug);
-    const domain = this.normalizeDomain(dto.domain);
-    await this.assertUnique(slug, domain);
+    await this.assertUnique(slug);
 
     const store = this.storesRepository.create({
       ...this.pickFields(dto),
       slug,
-      domain,
       products: await this.resolveProducts(dto.productIds),
       designs: await this.resolveDesigns(dto.designIds),
     });
@@ -96,10 +110,14 @@ export class StoresService {
       .loadRelationCountAndMap('store.designCount', 'store.designs')
       .orderBy('store.createdAt', 'DESC')
       .getMany();
-    return (rows as unknown as StoreSummary[]).map((row) => ({
-      ...row,
-      publicUrl: this.publicUrlFor(row.slug),
-    }));
+    return rows.map((row) => {
+      // La configuración del sitio es pesada y no se necesita en el listado.
+      const { siteConfig: _siteConfig, ...rest } = row;
+      return {
+        ...rest,
+        publicUrl: this.publicUrlFor(row.slug),
+      } as unknown as StoreSummary;
+    });
   }
 
   async findOne(id: string): Promise<StoreView> {
@@ -114,9 +132,10 @@ export class StoresService {
     if (!store) {
       throw new NotFoundException('Tienda no encontrada');
     }
-    const { products, designs, ...rest } = store;
+    const { products, designs, siteConfig, ...rest } = store;
     return {
       ...rest,
+      siteConfig: resolveSiteConfig(siteConfig),
       productIds: products.map((p) => p.id),
       designIds: designs.map((d) => d.id),
       publicUrl: this.publicUrlFor(rest.slug),
@@ -134,22 +153,27 @@ export class StoresService {
     if (slug !== undefined && slug !== store.slug) {
       this.assertSlugAllowed(slug);
     }
-    const domain =
-      dto.domain !== undefined ? this.normalizeDomain(dto.domain) : undefined;
     await this.assertUnique(
       slug !== undefined && slug !== store.slug ? slug : undefined,
-      domain !== undefined && domain !== store.domain ? domain : undefined,
       id,
     );
 
     Object.assign(store, this.pickFields(dto));
     if (slug !== undefined) store.slug = slug;
-    if (domain !== undefined) store.domain = domain;
+    if (dto.siteConfig !== undefined) {
+      store.siteConfig = mergeSiteConfig(store.siteConfig, dto.siteConfig);
+    }
     if (dto.productIds !== undefined) {
       store.products = await this.resolveProducts(dto.productIds);
     }
     if (dto.designIds !== undefined) {
       store.designs = await this.resolveDesigns(dto.designIds);
+    } else if (dto.productIds !== undefined) {
+      // Al cambiar los productos, se quitan los diseños de los productos que
+      // ya no están publicados en la tienda.
+      store.designs = await this.resolveDesigns(
+        await this.designIdsOfProducts(id, dto.productIds),
+      );
     }
     await this.storesRepository.save(store);
     return this.findOne(id);
@@ -213,9 +237,13 @@ export class StoresService {
     const host = rawHost.trim().toLowerCase().replace(/:\d+$/, '');
     if (!host) return null;
 
-    let store = await this.storesRepository.findOne({
-      where: { domain: host, isActive: true },
-    });
+    // Dominio propio activo: resuelto desde la caché en memoria (sin BD).
+    const domainStoreId = this.domainsService.storeIdForHost(host);
+    let store = domainStoreId
+      ? await this.storesRepository.findOne({
+          where: { id: domainStoreId, isActive: true },
+        })
+      : null;
 
     const base = this.baseDomain;
     if (!store && base && host.endsWith(`.${base}`)) {
@@ -282,6 +310,28 @@ export class StoresService {
       seoTitle: store.seoTitle,
       seoDescription: store.seoDescription,
       publicUrl: this.publicUrlFor(store.slug),
+      site: resolveSiteConfig(store.siteConfig),
+    };
+  }
+
+  /** Sube una imagen del sitio a Cloudinary y devuelve su URL. */
+  async uploadAsset(
+    storeId: string,
+    dataUri: string,
+  ): Promise<{ url: string; width: number; height: number }> {
+    const exists = await this.storesRepository.exist({
+      where: { id: storeId },
+    });
+    if (!exists) {
+      throw new NotFoundException('Tienda no encontrada');
+    }
+    const uploaded = await this.cloudinary.uploadImageData(dataUri, {
+      folder: `kult/stores/${storeId}`,
+    });
+    return {
+      url: uploaded.url,
+      width: uploaded.width,
+      height: uploaded.height,
     };
   }
 
@@ -332,27 +382,8 @@ export class StoresService {
     return out;
   }
 
-  /** Normaliza a host en minúsculas sin protocolo, ruta ni puerto. */
-  private normalizeDomain(raw: string | undefined): string | null {
-    const value = (raw ?? '')
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/.*$/, '');
-    if (!value) return null;
-    const valid =
-      /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(
-        value,
-      );
-    if (!valid) {
-      throw new BadRequestException('El dominio no es válido');
-    }
-    return value;
-  }
-
   private async assertUnique(
     slug: string | undefined,
-    domain: string | null | undefined,
     excludeId?: string,
   ): Promise<void> {
     if (slug) {
@@ -360,14 +391,6 @@ export class StoresService {
       if (found && found.id !== excludeId) {
         throw new BadRequestException(
           'Ese subdominio ya está en uso por otra tienda',
-        );
-      }
-    }
-    if (domain) {
-      const found = await this.storesRepository.findOne({ where: { domain } });
-      if (found && found.id !== excludeId) {
-        throw new BadRequestException(
-          'Ese dominio ya está asignado a otra tienda',
         );
       }
     }
@@ -383,6 +406,25 @@ export class StoresService {
       throw new BadRequestException('Algún producto no existe');
     }
     return found;
+  }
+
+  /** Ids de los diseños de la tienda cuyo producto está en `productIds`. */
+  private async designIdsOfProducts(
+    storeId: string,
+    productIds: string[],
+  ): Promise<string[]> {
+    const allowed = new Set(productIds);
+    const rows: { design_id: string; product_id: string }[] =
+      await this.dataSource.query(
+        `SELECT sd.design_id, d.product_id
+           FROM store_designs sd
+           JOIN designs d ON d.id = sd.design_id
+          WHERE sd.store_id = $1`,
+        [storeId],
+      );
+    return rows
+      .filter((r) => allowed.has(r.product_id))
+      .map((r) => r.design_id);
   }
 
   private async resolveDesigns(ids?: string[]): Promise<Design[]> {

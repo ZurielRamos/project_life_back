@@ -1,5 +1,18 @@
 type OriginCallback = (err: Error | null, allow?: boolean) => void;
 
+/** Solo https y sin puerto: https://<dominio propio activo>. */
+function matchesCustomHost(
+  origin: string,
+  isCustomHost: (hostname: string) => boolean,
+): boolean {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' && !url.port && isCustomHost(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Construye la función `origin` de CORS.
  *
@@ -16,6 +29,8 @@ type OriginCallback = (err: Error | null, allow?: boolean) => void;
 export function buildCorsOrigin(
   allowedOrigins: string[],
   baseDomain?: string,
+  /** ¿Es un dominio propio activo de alguna tienda? (consulta en memoria) */
+  isCustomHost?: (hostname: string) => boolean,
 ): (origin: string | undefined, callback: OriginCallback) => void {
   const base = baseDomain?.trim().toLowerCase();
   let storePattern: RegExp | null = null;
@@ -37,7 +52,8 @@ export function buildCorsOrigin(
     }
     const allowed =
       allowedOrigins.includes(origin) ||
-      (storePattern !== null && storePattern.test(origin.toLowerCase()));
+      (storePattern !== null && storePattern.test(origin.toLowerCase())) ||
+      (isCustomHost !== undefined && matchesCustomHost(origin, isCustomHost));
     callback(null, allowed);
   };
 }

@@ -4,6 +4,7 @@ import {
   IsArray,
   IsBoolean,
   IsEmail,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -76,9 +77,6 @@ export class CreateStoreDto {
   @IsOptional() @IsString() @MaxLength(120) seoTitle?: string;
   @IsOptional() @IsString() @MaxLength(320) seoDescription?: string;
 
-  /** Dominio personalizado; cadena vacía lo elimina. */
-  @IsOptional() @IsString() @MaxLength(253) domain?: string;
-
   @IsOptional()
   @IsArray()
   @ArrayUnique()
@@ -90,4 +88,12 @@ export class CreateStoreDto {
   @ArrayUnique()
   @IsUUID('4', { each: true })
   designIds?: string[];
+
+  /**
+   * Secciones de la configuración del sitio a actualizar (cada una reemplaza a
+   * la anterior). Se valida y normaliza en el servicio (ver site-config.ts).
+   */
+  @IsOptional()
+  @IsObject()
+  siteConfig?: Record<string, unknown>;
 }

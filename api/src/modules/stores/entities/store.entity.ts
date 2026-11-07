@@ -96,9 +96,21 @@ export class Store {
 
   // --- Dominio ---
 
-  /** Dominio personalizado (ej. "mitienda.com"), normalizado y único. */
+  /**
+   * @deprecated Reemplazado por la tabla `store_domains` (varios dominios por
+   * tienda). Se conserva solo para migrar valores antiguos al arrancar.
+   */
   @Column({ type: 'varchar', unique: true, nullable: true })
   domain: string | null;
+
+  // --- Sitio web ---
+
+  /**
+   * Configuración del sitio (anuncio, header, footer, home, contacto, páginas,
+   * integraciones). Solo guarda las secciones editadas; ver site-config.ts.
+   */
+  @Column({ name: 'site_config', type: 'jsonb', default: () => "'{}'" })
+  siteConfig: Record<string, unknown>;
 
   // --- Catálogo ---
 

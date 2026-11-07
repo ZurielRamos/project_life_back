@@ -39,6 +39,9 @@ export interface EnvVars {
   BRAND_NAME?: string;
   SITE_URL?: string;
   STORES_BASE_DOMAIN?: string;
+  VERCEL_API_TOKEN?: string;
+  VERCEL_PROJECT_ID?: string;
+  VERCEL_TEAM_ID?: string;
   CLIENT_DIST_PATH?: string;
   WHATSAPP_API_URL?: string;
   WHATSAPP_API_TOKEN?: string;
@@ -155,6 +158,18 @@ export function validateEnv(config: Record<string, unknown>): EnvVars {
       config.STORES_BASE_DOMAIN === undefined
         ? undefined
         : String(config.STORES_BASE_DOMAIN),
+    VERCEL_API_TOKEN:
+      config.VERCEL_API_TOKEN === undefined
+        ? undefined
+        : String(config.VERCEL_API_TOKEN),
+    VERCEL_PROJECT_ID:
+      config.VERCEL_PROJECT_ID === undefined
+        ? undefined
+        : String(config.VERCEL_PROJECT_ID),
+    VERCEL_TEAM_ID:
+      config.VERCEL_TEAM_ID === undefined
+        ? undefined
+        : String(config.VERCEL_TEAM_ID),
     CLIENT_DIST_PATH:
       config.CLIENT_DIST_PATH === undefined
         ? undefined

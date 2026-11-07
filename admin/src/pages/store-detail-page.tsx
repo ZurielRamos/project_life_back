@@ -44,6 +44,12 @@ import type {
 } from "@/types/api"
 import { AppHeader } from "@/components/app-header"
 import { SubdomainStatus } from "@/components/stores/subdomain-status"
+import { CustomDomains } from "@/components/stores/custom-domains"
+import { SiteEditor } from "@/components/stores/site/site-editor"
+import {
+  SITE_SECTIONS,
+  type SiteSectionId,
+} from "@/components/stores/site/site-sections"
 import {
   CatalogPicker,
   type CatalogItem,
@@ -70,7 +76,6 @@ interface FormState {
   locale: string
   seoTitle: string
   seoDescription: string
-  domain: string
   socialLinks: Record<keyof StoreSocialLinks, string>
   productIds: string[]
   designIds: string[]
@@ -104,7 +109,6 @@ function toForm(store: Store): FormState {
     locale: store.locale,
     seoTitle: store.seoTitle ?? "",
     seoDescription: store.seoDescription ?? "",
-    domain: store.domain ?? "",
     socialLinks: {
       instagram: store.socialLinks.instagram ?? "",
       facebook: store.socialLinks.facebook ?? "",
@@ -152,7 +156,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof FormState)[]> = {
     "locale",
   ],
   contact: ["contactEmail", "phone", "address", "socialLinks"],
-  domain: ["slug", "domain"],
+  domain: ["slug"],
   seo: ["seoTitle", "seoDescription"],
   products: ["productIds"],
   designs: ["designIds"],
@@ -223,6 +227,8 @@ export function StoreDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [section, setSection] = useState<SectionId>("general")
+  // Subsección activa del grupo «Sitio web» (null = se ve una sección de Tienda).
+  const [siteSection, setSiteSection] = useState<SiteSectionId | null>(null)
   const [baseDomain, setBaseDomain] = useState<string | null>(null)
   // Disponibilidad del subdominio (se comprueba 1 s después de dejar de escribir).
   const subdomain = useSubdomainAvailability(
@@ -277,18 +283,43 @@ export function StoreDetailPage() {
     [products]
   )
 
-  const designItems = useMemo<CatalogItem[]>(
-    () =>
-      designs.map((d) => ({
+  // Solo se ofrecen los diseños de los productos elegidos en la sección
+  // Productos (los demás no se podrían vender en esta tienda).
+  const selectedProductIds = form?.productIds
+  const designItems = useMemo<CatalogItem[]>(() => {
+    const allowed = new Set(selectedProductIds ?? [])
+    return designs
+      .filter((d) => allowed.has(d.productId))
+      .map((d) => ({
         id: d.id,
         name: d.name,
         subtitle: d.productName,
         imageUrl: d.coverImageUrl,
         // Solo se pueden publicar diseños terminados.
         disabled: d.status !== "ready",
-      })),
-    [designs]
-  )
+      }))
+  }, [designs, selectedProductIds])
+
+  /**
+   * Cambia los productos publicados y quita de la selección los diseños de
+   * los productos que ya no están elegidos.
+   */
+  function handleProductsChange(ids: string[]) {
+    setForm((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, productIds: ids }
+      // Sin el listado de diseños (p. ej. sin permiso) no se puede deducir
+      // a qué producto pertenece cada uno: se deja la selección como está.
+      if (designs.length > 0) {
+        const allowed = new Set(ids)
+        const valid = new Set(
+          designs.filter((d) => allowed.has(d.productId)).map((d) => d.id)
+        )
+        next.designIds = prev.designIds.filter((id) => valid.has(id))
+      }
+      return next
+    })
+  }
 
   function patch<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev))
@@ -345,6 +376,13 @@ export function StoreDetailPage() {
 
   function changeSection(next: SectionId) {
     setSection(next)
+    setSiteSection(null)
+    setError(null)
+    setSavedAt(null)
+  }
+
+  function changeSiteSection(next: SiteSectionId) {
+    setSiteSection(next)
     setError(null)
     setSavedAt(null)
   }
@@ -410,7 +448,6 @@ export function StoreDetailPage() {
       <AppHeader
         title={store.name}
         description={
-          store.domain ??
           store.publicUrl?.replace("https://", "") ??
           undefined
         }
@@ -443,25 +480,55 @@ export function StoreDetailPage() {
         {/* Menú lateral de secciones */}
         <nav
           aria-label="Secciones de la tienda"
-          className="flex w-52 shrink-0 flex-col gap-1"
+          className="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto"
         >
-          {SECTIONS.map(({ id: sectionId, label, icon: Icon }) => (
-            <button
-              key={sectionId}
-              type="button"
-              onClick={() => changeSection(sectionId)}
-              aria-current={section === sectionId ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors",
-                section === sectionId
-                  ? "bg-neutral-900 text-white"
-                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
-              )}
-            >
-              <Icon className="size-4 shrink-0" />
-              {label}
-            </button>
-          ))}
+          <p className="px-3 pt-1 pb-1 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
+            Tienda
+          </p>
+          {SECTIONS.map(({ id: sectionId, label, icon: Icon }) => {
+            const active = !siteSection && section === sectionId
+            return (
+              <button
+                key={sectionId}
+                type="button"
+                onClick={() => changeSection(sectionId)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors",
+                  active
+                    ? "bg-neutral-900 text-white"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                {label}
+              </button>
+            )
+          })}
+
+          <p className="px-3 pt-4 pb-1 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
+            Sitio web
+          </p>
+          {SITE_SECTIONS.map(({ id: sectionId, label, icon: Icon }) => {
+            const active = siteSection === sectionId
+            return (
+              <button
+                key={sectionId}
+                type="button"
+                onClick={() => changeSiteSection(sectionId)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors",
+                  active
+                    ? "bg-neutral-900 text-white"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+                )}
+              >
+                <Icon className="size-4 shrink-0" />
+                {label}
+              </button>
+            )
+          })}
         </nav>
   
         {/* Contenido de la sección activa */}
@@ -475,7 +542,17 @@ export function StoreDetailPage() {
             </div>
           )}
     
-          <ActiveSectionContext.Provider value={section}>
+          {/* Editor del sitio web: se mantiene montado para conservar el borrador. */}
+          <SiteEditor
+            store={store}
+            section={siteSection ?? ""}
+            canUpdate={canUpdate}
+            onSaved={setStore}
+          />
+
+          <ActiveSectionContext.Provider
+            value={siteSection ? ("" as SectionId) : section}
+          >
             <fieldset disabled={readOnly} className="flex flex-col gap-6">
               <Section
                 id="general"
@@ -737,25 +814,7 @@ export function StoreDetailPage() {
                   </p>
                 )}
               
-                <Field
-                  id="store-domain"
-                  label="Dominio propio (opcional)"
-                  hint="Sin protocolo ni ruta, por ejemplo mitienda.com. Déjalo vacío para quitarlo."
-                >
-                  <Input
-                    id="store-domain"
-                    value={form.domain}
-                    onChange={(e) => patch("domain", e.target.value)}
-                    placeholder="mitienda.com"
-                    maxLength={253}
-                  />
-                </Field>
-                <p className="text-xs text-neutral-500">
-                  Por ahora el dominio propio solo se registra en la tienda. Para que
-                  responda hay que añadirlo también al proyecto del front en Vercel y
-                  apuntar su DNS; la verificación automática llegará en una etapa
-                  posterior.
-                </p>
+                <CustomDomains storeId={store.id} canEdit={canUpdate} />
               </Section>
       
               <Section
@@ -791,7 +850,7 @@ export function StoreDetailPage() {
                 <CatalogPicker
                   items={productItems}
                   selectedIds={form.productIds}
-                  onChange={(ids) => patch("productIds", ids)}
+                  onChange={handleProductsChange}
                   emptyMessage="No hay productos en el catálogo principal."
                 />
               </Section>
@@ -799,18 +858,36 @@ export function StoreDetailPage() {
               <Section
                 id="designs"
                 title="Diseños publicados"
-                description="Elige cuáles diseños del catálogo principal se publican aquí. Solo se pueden publicar los diseños terminados."
+                description="Elige cuáles diseños se publican aquí. Solo aparecen los diseños de los productos publicados en la tienda, y únicamente los terminados."
               >
-                <CatalogPicker
-                  items={designItems}
-                  selectedIds={form.designIds}
-                  onChange={(ids) => patch("designIds", ids)}
-                  emptyMessage="No hay diseños en el catálogo principal."
-                />
+                {form.productIds.length === 0 ? (
+                  <div className="flex flex-col items-start gap-3">
+                    <p className="text-sm text-neutral-500">
+                      Primero elige los productos de la tienda; aquí solo se
+                      muestran los diseños de esos productos.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => changeSection("products")}
+                    >
+                      Ir a Productos
+                    </Button>
+                  </div>
+                ) : (
+                  <CatalogPicker
+                    items={designItems}
+                    selectedIds={form.designIds.filter((id) =>
+                      designItems.some((item) => item.id === id)
+                    )}
+                    onChange={(ids) => patch("designIds", ids)}
+                    emptyMessage="Los productos elegidos todavía no tienen diseños."
+                  />
+                )}
               </Section>
             </fieldset>
           </ActiveSectionContext.Provider>
-            {canUpdate && (
+            {canUpdate && !siteSection && (
               <div className="flex items-center gap-3">
                 <Button onClick={handleSave} disabled={saving || !dirty || blocked}>
                   {saving && <Loader2 className="size-4 animate-spin" />}

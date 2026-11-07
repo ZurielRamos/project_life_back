@@ -69,3 +69,23 @@ docker run --env-file api/.env -p 3000:3000 kult
 
 Luego abre `http://localhost:3000` (admin) — la API responde en
 `http://localhost:3000/api`.
+
+## Dominios propios de las tiendas
+
+Cada tienda puede tener varios dominios/subdominios propios. La API los
+registra en el proyecto de Vercel del **front** (Vercel enruta y emite/renueva
+el certificado TLS automáticamente) y vigila su estado con un job de BullMQ
+(cada 60 s mientras estén pendientes).
+
+Variables de la API:
+
+- `VERCEL_API_TOKEN`: token con acceso al proyecto del front.
+- `VERCEL_PROJECT_ID`: id o nombre del proyecto del front.
+- `VERCEL_TEAM_ID`: solo si el proyecto pertenece a un equipo.
+
+Los registros DNS que debe crear el cliente se muestran en el admin
+(Tienda → Dominio): `A 76.76.21.21` para el dominio raíz o `CNAME` para
+subdominios (los valores exactos los devuelve Vercel). Un dominio queda
+"Activo" cuando Vercel confirma los DNS; "SSL emitido" cuando HTTPS responde
+con un certificado válido. El `stores.domain` antiguo se migra solo a la
+tabla `store_domains` al arrancar.

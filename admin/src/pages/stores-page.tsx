@@ -132,9 +132,7 @@ export function StoresPage() {
               <div className="flex items-center gap-1.5 text-sm text-neutral-600">
                 <Globe className="size-4 shrink-0 text-neutral-400" />
                 <span className="truncate">
-                  {store.domain ??
-                    store.publicUrl?.replace("https://", "") ??
-                    "Sin dominio"}
+                  {store.publicUrl?.replace("https://", "") ?? "Sin dominio"}
                 </span>
               </div>
 

@@ -58,6 +58,8 @@ export interface DesignSummary {
   id: string;
   name: string;
   status: Design['status'];
+  /** Producto base del diseño (para filtrar por producto). */
+  productId: string;
   productName: string | null;
   /** Primera imagen de render lograda (portada), o null. */
   coverImageUrl: string | null;
@@ -543,6 +545,7 @@ export class DesignsService implements OnModuleInit {
         id: d.id,
         name: d.name,
         status: d.status,
+        productId: d.productId,
         productName: d.product?.name ?? null,
         coverImageUrl: cover?.imageUrl ?? null,
         editable,

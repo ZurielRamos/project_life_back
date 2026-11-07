@@ -466,6 +466,8 @@ export interface DesignSummary {
   id: string
   name: string
   status: DesignStatus
+  /** Producto base del diseño. */
+  productId: string
   productName: string | null
   /** Primera imagen de render lograda (portada), o null. */
   coverImageUrl: string | null
@@ -695,6 +697,8 @@ export interface StoreSummary extends StoreBase {
 export interface Store extends StoreBase {
   productIds: string[]
   designIds: string[]
+  /** Configuración del sitio web, ya resuelta con los valores por defecto. */
+  siteConfig: SiteConfig
 }
 
 /** Payload para crear una tienda (POST /stores). */
@@ -726,7 +730,163 @@ export interface UpdateStorePayload {
   locale?: string
   seoTitle?: string
   seoDescription?: string
-  domain?: string
   productIds?: string[]
   designIds?: string[]
+  /** Secciones del sitio a actualizar; cada una reemplaza a la anterior. */
+  siteConfig?: Partial<SiteConfig>
+}
+
+// --- Configuración del sitio web de la tienda ---
+
+export type SiteFit = "women" | "family" | "men" | "unisex" | "kids"
+
+export interface SiteLink {
+  label: string
+  url: string
+}
+
+export interface AnnouncementConfig {
+  enabled: boolean
+  text: string
+  linkLabel: string
+  linkUrl: string
+  backgroundColor: string
+  textColor: string
+}
+
+export interface HeaderConfig {
+  navItems: SiteLink[]
+}
+
+export interface FooterColumn {
+  title: string
+  links: SiteLink[]
+}
+
+export interface FooterConfig {
+  about: string
+  columns: FooterColumn[]
+  legalLinks: SiteLink[]
+  copyright: string
+  showSocial: boolean
+  showContactInfo: boolean
+}
+
+export interface FaqItem {
+  question: string
+  answer: string
+}
+
+export interface ContactPageConfig {
+  enabled: boolean
+  title: string
+  intro: string
+  showForm: boolean
+  formButtonLabel: string
+  whatsappMessage: string
+  hours: string
+  mapEmbedUrl: string
+  faqTitle: string
+  faqs: FaqItem[]
+}
+
+export interface SitePage {
+  slug: string
+  title: string
+  content: string
+  published: boolean
+}
+
+export interface IntegrationsConfig {
+  googleAnalyticsId: string
+  metaPixelId: string
+  googleSiteVerification: string
+}
+
+export type DefaultTileImage =
+  | ""
+  | "bg_mujer"
+  | "bg_familia"
+  | "bg_hombre"
+  | "bg_hoodie"
+  | "bg_kids"
+
+export interface CategoryTileConfig {
+  id: string
+  enabled: boolean
+  title: string
+  kicker: string
+  cta: string
+  url: string
+  imageUrl: string
+  mobileImageUrl: string
+  defaultImage: DefaultTileImage
+}
+
+interface HomeSectionBase {
+  id: string
+  enabled: boolean
+}
+
+export interface HeroSection extends HomeSectionBase {
+  type: "hero"
+  kicker: string
+  titleLine: string
+  titleAccent: string
+  subtitle: string
+  searchPlaceholder: string
+  suggestions: string[]
+  chips: SiteLink[]
+  imageUrl: string
+  mobileImageUrl: string
+}
+
+export interface CategoriesSection extends HomeSectionBase {
+  type: "categories"
+  tiles: CategoryTileConfig[]
+}
+
+export interface FeaturedSection extends HomeSectionBase {
+  type: "featured"
+  title: string
+  subtitle: string
+  limit: number
+  fit: SiteFit | ""
+  ctaLabel: string
+  ctaUrl: string
+}
+
+export interface BannerSection extends HomeSectionBase {
+  type: "banner"
+  title: string
+  text: string
+  imageUrl: string
+  mobileImageUrl: string
+  buttonLabel: string
+  buttonUrl: string
+  align: "left" | "center" | "right"
+}
+
+export interface TextSection extends HomeSectionBase {
+  type: "text"
+  title: string
+  body: string
+  align: "left" | "center"
+}
+
+export type HomeSection =
+  | HeroSection
+  | CategoriesSection
+  | FeaturedSection
+  | BannerSection
+  | TextSection
+
+export interface SiteConfig {
+  announcement: AnnouncementConfig
+  header: HeaderConfig
+  footer: FooterConfig
+  home: { sections: HomeSection[] }
+  contact: ContactPageConfig
+  pages: SitePage[]
+  integrations: IntegrationsConfig
 }

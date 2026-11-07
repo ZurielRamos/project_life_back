@@ -3,11 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { buildCorsOrigin } from './common/cors-origin';
+import { StoreDomainsService } from './modules/stores/store-domains.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   const configService = app.get(ConfigService);
   const port = configService.get<number>('PORT') ?? 3000;
+  const domains = app.get(StoreDomainsService);
 
   // Límite ampliado: las imágenes de diseño llegan como data URI (base64).
   const { json, urlencoded } = await import('express');
@@ -25,6 +27,7 @@ async function bootstrap() {
     origin: buildCorsOrigin(
       allowedOrigins,
       configService.get<string>('STORES_BASE_DOMAIN'),
+      (host) => domains.isActiveHost(host),
     ),
     credentials: true,
   });

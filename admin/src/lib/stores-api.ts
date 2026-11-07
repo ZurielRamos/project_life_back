@@ -63,3 +63,77 @@ export function checkSubdomainAvailability(
     `/stores/subdomain-availability?${params.toString()}`
   )
 }
+
+// --- Dominios personalizados ---
+
+export interface DnsRecord {
+  type: "A" | "CNAME" | "TXT"
+  /** Nombre relativo al dominio ("@" = raíz). */
+  name: string
+  value: string
+  purpose: "routing" | "verification"
+}
+
+export interface StoreDomain {
+  id: string
+  hostname: string
+  kind: "apex" | "subdomain"
+  status: "pending" | "active" | "error"
+  sslStatus: "pending" | "issued"
+  dnsRecords: DnsRecord[]
+  lastError: string | null
+  lastCheckedAt: string | null
+  verifiedAt: string | null
+  createdAt: string
+}
+
+export function listStoreDomains(storeId: string): Promise<StoreDomain[]> {
+  return apiFetch<StoreDomain[]>(`/stores/${storeId}/domains`)
+}
+
+export function addStoreDomain(
+  storeId: string,
+  hostname: string
+): Promise<StoreDomain> {
+  return apiFetch<StoreDomain>(`/stores/${storeId}/domains`, {
+    method: "POST",
+    body: { hostname },
+  })
+}
+
+export function verifyStoreDomain(
+  storeId: string,
+  domainId: string
+): Promise<StoreDomain> {
+  return apiFetch<StoreDomain>(
+    `/stores/${storeId}/domains/${domainId}/verify`,
+    { method: "POST" }
+  )
+}
+
+export function removeStoreDomain(
+  storeId: string,
+  domainId: string
+): Promise<void> {
+  return apiFetch<void>(`/stores/${storeId}/domains/${domainId}`, {
+    method: "DELETE",
+  })
+}
+
+/** Resultado de subir una imagen del sitio (logo, banner…). */
+export interface UploadedAsset {
+  url: string
+  width: number
+  height: number
+}
+
+/** Sube una imagen (data URI) para usarla en el sitio web de la tienda. */
+export function uploadStoreAsset(
+  storeId: string,
+  dataUri: string
+): Promise<UploadedAsset> {
+  return apiFetch<UploadedAsset>(`/stores/${storeId}/assets`, {
+    method: "POST",
+    body: { dataUri },
+  })
+}
