@@ -2,17 +2,29 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { FitCategory } from '../../fit-categories/entities/fit-category.entity';
 import { PhotoSession } from './photo-session.entity';
 import { PrintArea } from './print-area.entity';
 import { ProductColor } from './product-color.entity';
 import { ProductSize } from './product-size.entity';
 
-/** Ajuste/genero del producto. */
+/** Ajuste/género del producto (enum fijo). */
 export type ProductFit = 'men' | 'women' | 'unisex' | 'kids' | 'family';
+
+/** Valores válidos del ajuste, como lista (útil para validación/seed). */
+export const PRODUCT_FITS: ProductFit[] = [
+  'men',
+  'women',
+  'unisex',
+  'kids',
+  'family',
+];
 
 /** Unidad de medida del size chart. */
 export type MeasurementUnit = 'cm' | 'inch';
@@ -58,6 +70,20 @@ export class Product {
 
   @Column({ type: 'varchar', nullable: true })
   fit: ProductFit | null;
+
+  /**
+   * Categoría del ajuste (opcional). Debe pertenecer al mismo `fit`. Si se
+   * elimina la categoría, el FK queda en null (SET NULL).
+   */
+  @ManyToOne(() => FitCategory, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'fit_category_id' })
+  fitCategory: FitCategory | null;
+
+  @Column({ name: 'fit_category_id', type: 'uuid', nullable: true })
+  fitCategoryId: string | null;
 
   /** Precio base en centavos (evita problemas de coma flotante). */
   @Column({ name: 'base_price_cents', type: 'int', nullable: true })

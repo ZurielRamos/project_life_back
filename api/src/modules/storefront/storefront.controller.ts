@@ -1,7 +1,15 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { Public } from '../auth/decorators/public.decorator';
 import { ListStorefrontDesignsDto } from './dto/list-storefront-designs.dto';
 import { SearchStorefrontDesignsDto } from './dto/search-storefront-designs.dto';
+import { StoresService } from '../stores/stores.service';
 import {
   StorefrontListResult,
   StorefrontProduct,
@@ -16,7 +24,27 @@ import {
 @Public()
 @Controller('storefront')
 export class StorefrontController {
-  constructor(private readonly storefrontService: StorefrontService) {}
+  constructor(
+    private readonly storefrontService: StorefrontService,
+    private readonly storesService: StoresService,
+  ) {}
+
+  /**
+   * Resuelve la tienda a partir del host de la petición (subdominio del
+   * dominio base o dominio propio). El front lo llama con el `Host` que
+   * recibió. Solo expone configuración pública de tiendas activas.
+   */
+  @Get('store')
+  async getStoreByHost(@Query('host') host?: string) {
+    if (!host?.trim()) {
+      throw new BadRequestException('Falta el parámetro host');
+    }
+    const store = await this.storesService.findPublicByHost(host);
+    if (!store) {
+      throw new NotFoundException('Tienda no encontrada');
+    }
+    return store;
+  }
 
   /**
    * Lista productos (diseños listos) con filtro opcional por género (fit:
@@ -42,7 +70,10 @@ export class StorefrontController {
 
   /** Detalle de un producto por slug SEO. */
   @Get('designs/:slug')
-  getBySlug(@Param('slug') slug: string): Promise<StorefrontProduct> {
-    return this.storefrontService.getBySlug(slug);
+  getBySlug(
+    @Param('slug') slug: string,
+    @Query('store') store?: string,
+  ): Promise<StorefrontProduct> {
+    return this.storefrontService.getBySlug(slug, store);
   }
 }

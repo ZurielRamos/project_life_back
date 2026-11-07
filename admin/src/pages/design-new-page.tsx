@@ -7,6 +7,7 @@ import {
   Eye,
   ImagePlus,
   Loader2,
+  Pencil,
   Sparkles,
   Trash2,
 } from "lucide-react"
@@ -15,30 +16,69 @@ import { ApiError } from "@/lib/api"
 import {
   generateDesign,
   previewDesign,
+  renderDesignSvg,
   uploadDesignImage,
 } from "@/lib/designs-api"
+import { createFont, listFonts } from "@/lib/fonts-api"
 import { getProduct, listProducts } from "@/lib/products-api"
 import { fileToDataUri } from "@/lib/file"
+import {
+  computeAnchor,
+  ensureFontLoaded,
+  isSvgFile,
+  parseSvgTemplate,
+  type SvgTextField,
+  type TextAlign,
+} from "@/lib/svg-template"
 import type {
+  DesignArea,
   DesignSeoView,
-  PrintArea,
+  Font,
   Product,
+  ProductSummary,
+  RenderSvgField,
 } from "@/types/api"
 import { Button } from "@/components/ui/button"
+import { AppHeader } from "@/components/app-header"
+import { Combobox } from "@/components/ui/combobox"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { AreaCanvas, type Placement } from "@/components/designs/area-canvas"
+import { SvgFieldsDialog } from "@/components/designs/svg-fields-dialog"
 
 let keyCounter = 0
 function nextKey(): string {
   keyCounter += 1
   return `pl_${keyCounter}`
+}
+
+/**
+ * Deriva las áreas de diseño desde los smart objects "dise" del primer
+ * mockup de la primera sesión del producto. Cada área = un smart object,
+ * con su nombre y su tamaño en px de la plantilla (B1).
+ */
+function deriveDesignAreas(product: Product | null): DesignArea[] {
+  if (!product) return []
+  const sessions = [...(product.photoSessions ?? [])].sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  )
+  const firstSession = sessions[0]
+  const mockups = [...(firstSession?.mockups ?? [])].sort(
+    (a, b) => a.position - b.position
+  )
+  const firstMockup = mockups[0]
+  if (!firstMockup) return []
+
+  return (firstMockup.smartObjects ?? [])
+    .filter((so) => (so.name ?? "").toLowerCase().startsWith("dise"))
+    .map((so) => ({
+      smartObjectUuid: so.uuid,
+      // El nombre del smart object suele venir como "diseo"; se muestra como
+      // "Diseño" en la UI (reemplazo global, case-insensitive).
+      name: (so.name ?? "Diseño").replace(/diseo/gi, "Diseño"),
+      widthPx: so.size?.width ?? 100,
+      heightPx: so.size?.height ?? 100,
+    }))
 }
 
 /**
@@ -49,7 +89,7 @@ function nextKey(): string {
 export function DesignNewPage() {
   const navigate = useNavigate()
 
-  const [products, setProducts] = useState<Product[]>([])
+  const [products, setProducts] = useState<ProductSummary[]>([])
   const [loadingProducts, setLoadingProducts] = useState(true)
   const [productId, setProductId] = useState("")
   const [product, setProduct] = useState<Product | null>(null)
@@ -70,7 +110,35 @@ export function DesignNewPage() {
   const [previewingArea, setPreviewingArea] = useState<string | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const targetAreaRef = useRef<PrintArea | null>(null)
+  const targetAreaRef = useRef<DesignArea | null>(null)
+
+  // Fuentes registradas (con su archivo, para medir texto en el cliente).
+  const [fonts, setFonts] = useState<Font[]>([])
+  // Flujo de plantilla SVG en edición (campos de texto por llenar).
+  const [svgDraft, setSvgDraft] = useState<{
+    area: DesignArea
+    svg: string
+    fields: SvgTextField[]
+    values: Record<string, string>
+    aligns: Record<string, TextAlign>
+    missingFonts: string[]
+  } | null>(null)
+  const [applyingSvg, setApplyingSvg] = useState(false)
+
+  const fontFamilies = fonts.map((f) => f.family)
+
+  // Carga las fuentes registradas (para el aviso de fuente faltante).
+  const loadFonts = useCallback(() => {
+    listFonts()
+      .then((list) => setFonts(list))
+      .catch(() => {
+        /* silencioso: el aviso de fuentes es best-effort */
+      })
+  }, [])
+
+  useEffect(() => {
+    loadFonts()
+  }, [loadFonts])
 
   // Carga la lista de productos para el selector inicial.
   useEffect(() => {
@@ -143,6 +211,21 @@ export function DesignNewPage() {
     setSelectedKey(null)
   }
 
+  /**
+   * Reemplaza por completo las placements de un área (smart object). Lo usa
+   * el canvas para aplicar deshacer/rehacer sin tocar las demás áreas.
+   */
+  function replaceAreaPlacements(
+    smartObjectUuid: string,
+    next: Placement[]
+  ) {
+    setPlacements((prev) => [
+      ...prev.filter((p) => p.printAreaId !== smartObjectUuid),
+      ...next,
+    ])
+    setSelectedKey(null)
+  }
+
   function toggleColor(colorId: string) {
     setActiveColorIds((prev) => {
       const next = new Set(prev)
@@ -163,9 +246,55 @@ export function DesignNewPage() {
     })
   }
 
-  function triggerUpload(area: PrintArea) {
+  function triggerUpload(area: DesignArea) {
     targetAreaRef.current = area
     fileInputRef.current?.click()
+  }
+
+  /**
+   * Coloca una imagen ya subida (url + dimensiones) en el área, ajustada al
+   * tamaño máximo que entra sin salirse de ningún límite (fit/contain) y
+   * centrada. Conserva la proporción de la imagen.
+   */
+  function placeImage(
+    area: DesignArea,
+    img: { url: string; publicId?: string; width: number; height: number },
+    source?: {
+      svgUrl: string
+      fieldValues: Record<string, string>
+      svgText: string
+      fieldAligns: Record<string, string>
+    }
+  ) {
+    const areaW = area.widthPx || 100
+    const areaH = area.heightPx || 100
+    const imgW = img.width || 1
+    const imgH = img.height || 1
+    // Escala "contain": el mayor factor que cabe en ambos ejes.
+    const scale = Math.min(areaW / imgW, areaH / imgH)
+    const w = imgW * scale
+    const h = imgH * scale
+    const key = nextKey()
+    setPlacements((prev) => [
+      // Una imagen por área: reemplaza la que hubiera en esta área.
+      ...prev.filter((p) => p.printAreaId !== area.smartObjectUuid),
+      {
+        key,
+        printAreaId: area.smartObjectUuid,
+        imageUrl: img.url,
+        imagePublicId: img.publicId,
+        xMm: (areaW - w) / 2,
+        yMm: (areaH - h) / 2,
+        widthMm: w,
+        heightMm: h,
+        rotation: 0,
+        svgUrl: source?.svgUrl,
+        fieldValues: source?.fieldValues,
+        svgText: source?.svgText,
+        fieldAligns: source?.fieldAligns,
+      },
+    ])
+    setSelectedKey(key)
   }
 
   async function handleFileSelected(
@@ -176,44 +305,203 @@ export function DesignNewPage() {
     const area = targetAreaRef.current
     if (!file || !area) return
 
-    setUploadingArea(area.id)
+    // --- Rama SVG: plantilla con posibles campos de texto editables. ---
+    if (isSvgFile(file)) {
+      const svg = await file.text()
+      const parsed = parseSvgTemplate(svg)
+      if (!parsed.valid) {
+        setError("El SVG no se pudo leer. Revisa el archivo.")
+        return
+      }
+      const missingFonts = parsed.fontFamilies.filter(
+        (fam) => !fontFamilies.includes(fam)
+      )
+      // Carga en el navegador las fuentes disponibles para medir el texto.
+      await Promise.all(
+        fonts
+          .filter((f) => parsed.fontFamilies.includes(f.family))
+          .map((f) => ensureFontLoaded(f.family, f.fileUrl))
+      )
+      if (parsed.fields.length === 0) {
+        // Sin campos editables: se rasteriza tal cual (arte puro), salvo que
+        // falten fuentes (en cuyo caso applySvg abre el panel para subirlas).
+        await applySvg(area, svg, parsed.fields, {}, {}, missingFonts)
+        return
+      }
+      // Con campos: abre el panel de edición con los valores por defecto.
+      const values: Record<string, string> = {}
+      const aligns: Record<string, TextAlign> = {}
+      parsed.fields.forEach((f) => {
+        values[f.id] = f.defaultText
+        aligns[f.id] = "center"
+      })
+      setSvgDraft({
+        area,
+        svg,
+        fields: parsed.fields,
+        values,
+        aligns,
+        missingFonts,
+      })
+      return
+    }
+
+    // --- Rama imagen raster: flujo original. ---
+    setUploadingArea(area.smartObjectUuid)
     setError(null)
     try {
       const dataUri = await fileToDataUri(file)
       const uploaded = await uploadDesignImage(dataUri)
-
-      const areaW = area.widthMm ?? 100
-      const areaH = area.heightMm ?? 100
-      const ratio = uploaded.height / uploaded.width || 1
-      let wMm = areaW * 0.6
-      let hMm = wMm * ratio
-      if (hMm > areaH) {
-        hMm = areaH * 0.6
-        wMm = hMm / ratio
-      }
-
-      const key = nextKey()
-      setPlacements((prev) => [
-        ...prev,
-        {
-          key,
-          printAreaId: area.id,
-          imageUrl: uploaded.url,
-          imagePublicId: uploaded.publicId,
-          xMm: (areaW - wMm) / 2,
-          yMm: (areaH - hMm) / 2,
-          widthMm: wMm,
-          heightMm: hMm,
-          rotation: 0,
-        },
-      ])
-      setSelectedKey(key)
+      placeImage(area, uploaded)
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "No se pudo subir la imagen."
       setError(message)
     } finally {
       setUploadingArea(null)
+    }
+  }
+
+  /**
+   * Rasteriza el SVG con los valores dados y coloca el PNG en el área.
+   * Exige que TODAS las fuentes del SVG estén registradas: si falta alguna,
+   * no genera y deja/abre el panel para que el usuario las suba.
+   */
+  async function applySvg(
+    area: DesignArea,
+    svg: string,
+    fields: SvgTextField[],
+    values: Record<string, string>,
+    aligns: Record<string, TextAlign>,
+    missingFonts: string[]
+  ) {
+    if (missingFonts.length > 0) {
+      // No se puede continuar sin las fuentes. Asegura el panel abierto con
+      // las familias faltantes para que el usuario las registre.
+      setSvgDraft({ area, svg, fields, values, aligns, missingFonts })
+      setError(
+        `Debes registrar las fuentes del diseño antes de continuar: ${missingFonts.join(
+          ", "
+        )}.`
+      )
+      return
+    }
+
+    setApplyingSvg(true)
+    setError(null)
+    try {
+      // Construye los campos con su anclaje/alineación (medición con la
+      // fuente real para hallar el eje correcto).
+      const renderFields: RenderSvgField[] = fields.map((field) => {
+        const anchor = computeAnchor(field, aligns[field.id] ?? "center")
+        return {
+          key: field.id,
+          value: values[field.id] ?? "",
+          anchorX: anchor.anchorX,
+          anchorY: anchor.anchorY,
+          textAnchor: anchor.textAnchor,
+        }
+      })
+
+      const result = await renderDesignSvg({ svg, fields: renderFields })
+      // Defensa adicional: el backend también reporta fuentes faltantes.
+      if (result.missingFonts.length > 0) {
+        setSvgDraft({
+          area,
+          svg,
+          fields,
+          values,
+          aligns,
+          missingFonts: result.missingFonts,
+        })
+        setError(
+          `Debes registrar las fuentes del diseño antes de continuar: ${result.missingFonts.join(
+            ", "
+          )}.`
+        )
+        return
+      }
+      placeImage(area, result.image, {
+        svgUrl: result.svgUrl,
+        fieldValues: values,
+        svgText: svg,
+        fieldAligns: aligns,
+      })
+      setSvgDraft(null)
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "No se pudo generar el diseño."
+      setError(message)
+    } finally {
+      setApplyingSvg(false)
+    }
+  }
+
+  /**
+   * Reabre el editor de textos para un diseño SVG ya aplicado en un área,
+   * precargado con los valores y alineaciones actuales. Re-parsea el SVG
+   * guardado para reconstruir los campos.
+   */
+  async function editSvgPlacement(area: DesignArea) {
+    const placement = placements.find(
+      (p) => p.printAreaId === area.smartObjectUuid && p.svgText
+    )
+    if (!placement?.svgText) return
+
+    const parsed = parseSvgTemplate(placement.svgText)
+    const missingFonts = parsed.fontFamilies.filter(
+      (fam) => !fontFamilies.includes(fam)
+    )
+    await Promise.all(
+      fonts
+        .filter((f) => parsed.fontFamilies.includes(f.family))
+        .map((f) => ensureFontLoaded(f.family, f.fileUrl))
+    )
+
+    // Precarga con los valores/alineaciones guardados; cae en los del SVG.
+    const values: Record<string, string> = {}
+    const aligns: Record<string, TextAlign> = {}
+    parsed.fields.forEach((f) => {
+      values[f.id] = placement.fieldValues?.[f.id] ?? f.defaultText
+      aligns[f.id] =
+        (placement.fieldAligns?.[f.id] as TextAlign | undefined) ?? "center"
+    })
+
+    setSvgDraft({
+      area,
+      svg: placement.svgText,
+      fields: parsed.fields,
+      values,
+      aligns,
+      missingFonts,
+    })
+  }
+
+  /**
+   * Registra una fuente para una familia y la quita de las faltantes del
+   * draft. La llama el modal de campos de texto cuando falta una fuente.
+   */
+  async function uploadFontForFamily(family: string, file: File) {
+    setError(null)
+    try {
+      const dataUri = await fileToDataUri(file)
+      const format = file.name.split(".").pop()?.toLowerCase()
+      const created = await createFont({ family, dataUri, format })
+      setFonts((prev) => [...prev.filter((f) => f.family !== family), created])
+      // Carga la fuente en el navegador para poder medir el texto con ella.
+      await ensureFontLoaded(created.family, created.fileUrl)
+      setSvgDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              missingFonts: prev.missingFonts.filter((f) => f !== family),
+            }
+          : prev
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "No se pudo subir la fuente."
+      setError(message)
     }
   }
 
@@ -228,21 +516,21 @@ export function DesignNewPage() {
    * Genera una vista previa efímera del área: render del primer color activo
    * + SEO. No crea ni guarda nada en la BD.
    */
-  async function handlePreview(area: PrintArea) {
+  async function handlePreview(area: DesignArea) {
     if (!productId) return
     const areaPlacements = placements.filter(
-      (p) => p.printAreaId === area.id
+      (p) => p.printAreaId === area.smartObjectUuid
     )
     if (areaPlacements.length === 0) {
       setError("Carga una imagen en esta área antes de previsualizar.")
       return
     }
-    setPreviewingArea(area.id)
+    setPreviewingArea(area.smartObjectUuid)
     setError(null)
     try {
       const result = await previewDesign({
         productId,
-        printAreaId: area.id,
+        printAreaId: area.smartObjectUuid,
         placements: areaPlacements.map((p, index) => ({
           printAreaId: p.printAreaId,
           imageUrl: p.imageUrl,
@@ -252,6 +540,8 @@ export function DesignNewPage() {
           widthMm: p.widthMm,
           heightMm: p.heightMm,
           rotation: p.rotation,
+          authorAreaWidthPx: area.widthPx,
+          authorAreaHeightPx: area.heightPx,
           zIndex: index,
         })),
         colorId: firstActiveColorId ?? undefined,
@@ -283,17 +573,26 @@ export function DesignNewPage() {
     try {
       await generateDesign({
         productId,
-        placements: placements.map((p, index) => ({
-          printAreaId: p.printAreaId,
-          imageUrl: p.imageUrl,
-          imagePublicId: p.imagePublicId,
-          xMm: p.xMm,
-          yMm: p.yMm,
-          widthMm: p.widthMm,
-          heightMm: p.heightMm,
-          rotation: p.rotation,
-          zIndex: index,
-        })),
+        placements: placements.map((p, index) => {
+          const area = areaByUuid.get(p.printAreaId)
+          return {
+            printAreaId: p.printAreaId,
+            imageUrl: p.imageUrl,
+            imagePublicId: p.imagePublicId,
+            xMm: p.xMm,
+            yMm: p.yMm,
+            widthMm: p.widthMm,
+            heightMm: p.heightMm,
+            rotation: p.rotation,
+            // Tamaño del área contra la que se autoró la geometría, para que
+            // el render escale a cada mockup de la sesión.
+            authorAreaWidthPx: area?.widthPx,
+            authorAreaHeightPx: area?.heightPx,
+            zIndex: index,
+            svgUrl: p.svgUrl,
+            fieldValues: p.fieldValues,
+          }
+        }),
         colorIds: activeColorIdsOrdered,
       })
       navigate("/designs")
@@ -307,7 +606,12 @@ export function DesignNewPage() {
     }
   }
 
-  const areas = product?.printAreas ?? []
+  // Áreas derivadas: un área por cada smart object "dise" del primer mockup
+  // de la primera sesión del producto. El lienzo trabaja en px (B1).
+  const areas = deriveDesignAreas(product)
+  // Lookup de tamaño del área por uuid de smart object, para adjuntar el
+  // tamaño de autoría a cada placement al generar/previsualizar.
+  const areaByUuid = new Map(areas.map((a) => [a.smartObjectUuid, a]))
   const colors = product?.colors ?? []
   const colorById = new Map(colors.map((c) => [c.id, c]))
   const hasImages = placements.length > 0
@@ -317,29 +621,25 @@ export function DesignNewPage() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.svg,image/svg+xml"
         className="hidden"
         onChange={handleFileSelected}
       />
 
-      <div>
-        <Link
-          to="/designs"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900"
-        >
-          <ArrowLeft className="size-4" />
-          Volver a diseños
-        </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-neutral-900">
-              Nuevo diseño
-            </h1>
-            <p className="mt-1 text-sm text-neutral-500">
-              Elige el producto, coloca las imágenes y genera los renders.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+      <AppHeader
+        title="Nuevo diseño"
+        description="Elige el producto, coloca las imágenes y genera los renders."
+        leading={
+          <Link
+            to="/designs"
+            aria-label="Volver a diseños"
+            className="flex size-10 items-center justify-center rounded-full border bg-white text-neutral-600 hover:text-neutral-900"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+        }
+        actions={
+          <>
             {selectedKey && (
               <Button
                 data-keep-selection
@@ -362,9 +662,9 @@ export function DesignNewPage() {
               )}
               Generar
             </Button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {error && (
         <div
@@ -375,25 +675,20 @@ export function DesignNewPage() {
         </div>
       )}
 
-      {/* Selector de producto */}
+      {/* Selector de producto (buscador autocomplete) */}
       <div className="grid max-w-md gap-2">
         <Label htmlFor="design-product">Producto</Label>
-        <Select value={productId} onValueChange={handleProductChange}>
-          <SelectTrigger id="design-product" className="w-full">
-            <SelectValue
-              placeholder={
-                loadingProducts ? "Cargando..." : "Selecciona un producto"
-              }
-            />
-          </SelectTrigger>
-          <SelectContent>
-            {products.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Combobox
+          id="design-product"
+          options={products.map((p) => ({ value: p.id, label: p.name }))}
+          value={productId}
+          onChange={handleProductChange}
+          disabled={loadingProducts}
+          placeholder={
+            loadingProducts ? "Cargando…" : "Busca y selecciona un producto"
+          }
+          emptyText="No se encontraron productos."
+        />
       </div>
 
       {loadingProduct ? (
@@ -408,17 +703,23 @@ export function DesignNewPage() {
         <div className="flex min-h-0 flex-1 gap-6">
           {/* Columna izquierda: colores */}
           <aside className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto">
-            {colors.length > 0 && (
-              <section className="rounded-2xl border bg-white p-4">
-                <h2 className="mb-1 text-sm font-semibold text-neutral-900">
-                  Colores a generar
-                </h2>
-                <p className="mb-3 text-xs text-neutral-500">
-                  Actívalos y ordénalos. Se generará un render por cada color
-                  activo.
+            <section className="rounded-2xl border bg-white p-4">
+              <h2 className="mb-1 text-sm font-semibold text-neutral-900">
+                Colores a generar
+              </h2>
+              {colors.length === 0 ? (
+                <p className="text-xs text-neutral-500">
+                  Este producto no tiene colores configurados. Se generará un
+                  render sin color. Puedes añadir colores desde el producto.
                 </p>
-                <div className="flex flex-col gap-1.5">
-                  {colorOrder.map((colorId, index) => {
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-neutral-500">
+                    Actívalos y ordénalos. Se generará un render por cada color
+                    activo.
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {colorOrder.map((colorId, index) => {
                     const color = colorById.get(colorId)
                     if (!color) return null
                     const active = activeColorIds.has(color.id)
@@ -475,28 +776,30 @@ export function DesignNewPage() {
                           />
                         </button>
                       </div>
-                    )
-                  })}
-                </div>
-              </section>
-            )}
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </section>
           </aside>
 
           {/* Columna derecha: áreas + canvas de edición */}
           <div className="flex min-w-0 flex-1 flex-col gap-4">
             {areas.length === 0 ? (
               <section className="rounded-2xl border border-dashed p-6 text-center text-sm text-neutral-500">
-                El producto no tiene áreas de impresión. Defínelas en el
-                producto para poder diseñar.
+                La primera sesión del producto no tiene mockups con capas de
+                diseño ("dise"). Importa un mockup con smart objects de diseño
+                para poder diseñar.
               </section>
             ) : (
               areas.map((area) => {
                 const areaPlacements = placements.filter(
-                  (p) => p.printAreaId === area.id
+                  (p) => p.printAreaId === area.smartObjectUuid
                 )
                 return (
                   <section
-                    key={area.id}
+                    key={area.smartObjectUuid}
                     className="flex flex-col gap-2 rounded-2xl border bg-white p-4"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -505,9 +808,7 @@ export function DesignNewPage() {
                           {area.name}
                         </h2>
                         <p className="text-xs text-neutral-400">
-                          {area.widthMm && area.heightMm
-                            ? `${area.widthMm} × ${area.heightMm} mm`
-                            : "Sin tamaño definido"}
+                          {area.widthPx} × {area.heightPx} px
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -516,26 +817,37 @@ export function DesignNewPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => triggerUpload(area)}
-                          disabled={uploadingArea === area.id}
+                          disabled={uploadingArea === area.smartObjectUuid}
                         >
-                          {uploadingArea === area.id ? (
+                          {uploadingArea === area.smartObjectUuid ? (
                             <Loader2 className="size-4 animate-spin" />
                           ) : (
                             <ImagePlus className="size-4" />
                           )}
-                          Cargar imagen
+                          Cargar archivo
                         </Button>
+                        {areaPlacements.some((p) => p.svgText) && (
+                          <Button
+                            data-keep-selection
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void editSvgPlacement(area)}
+                          >
+                            <Pencil className="size-4" />
+                            Editar diseño
+                          </Button>
+                        )}
                         <Button
                           data-keep-selection
                           variant="outline"
                           size="sm"
                           onClick={() => handlePreview(area)}
                           disabled={
-                            previewingArea === area.id ||
+                            previewingArea === area.smartObjectUuid ||
                             areaPlacements.length === 0
                           }
                         >
-                          {previewingArea === area.id ? (
+                          {previewingArea === area.smartObjectUuid ? (
                             <Loader2 className="size-4 animate-spin" />
                           ) : (
                             <Eye className="size-4" />
@@ -551,6 +863,9 @@ export function DesignNewPage() {
                         selectedKey={selectedKey}
                         onSelect={setSelectedKey}
                         onChange={updatePlacement}
+                        onReplaceAreaPlacements={(next) =>
+                          replaceAreaPlacements(area.smartObjectUuid, next)
+                        }
                       />
                     </div>
                   </section>
@@ -631,6 +946,37 @@ export function DesignNewPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de campos de texto del SVG + gestión de fuentes faltantes. */}
+      <SvgFieldsDialog
+        open={svgDraft !== null}
+        onOpenChange={(next) => {
+          if (!next && !applyingSvg) setSvgDraft(null)
+        }}
+        fields={svgDraft?.fields ?? []}
+        values={svgDraft?.values ?? {}}
+        onValuesChange={(values) =>
+          setSvgDraft((prev) => (prev ? { ...prev, values } : prev))
+        }
+        aligns={svgDraft?.aligns ?? {}}
+        onAlignsChange={(aligns) =>
+          setSvgDraft((prev) => (prev ? { ...prev, aligns } : prev))
+        }
+        missingFonts={svgDraft?.missingFonts ?? []}
+        onUploadFont={uploadFontForFamily}
+        onApply={() => {
+          if (!svgDraft) return
+          void applySvg(
+            svgDraft.area,
+            svgDraft.svg,
+            svgDraft.fields,
+            svgDraft.values,
+            svgDraft.aligns,
+            svgDraft.missingFonts
+          )
+        }}
+        applying={applyingSvg}
+      />
     </div>
   )
 }

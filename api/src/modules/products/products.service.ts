@@ -19,6 +19,7 @@ import { ReorderMockupsDto } from './dto/reorder-mockups.dto';
 import { SetColorsDto } from './dto/set-colors.dto';
 import { SetPrintAreasDto } from './dto/set-print-areas.dto';
 import { SetSizesDto } from './dto/set-sizes.dto';
+import { FitCategory } from '../fit-categories/entities/fit-category.entity';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PhotoSession } from './entities/photo-session.entity';
 import { PrintArea } from './entities/print-area.entity';
@@ -38,6 +39,23 @@ export interface RemoteMockupListResult {
   accounts: SudomockAccount[];
 }
 
+/** Resumen de producto para la grilla de listado. */
+export interface ProductSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Cantidad de sesiones de fotos. */
+  sessionCount: number;
+  /** Cantidad de colores configurados. */
+  colorCount: number;
+  /** Cantidad de tallas configuradas. */
+  sizeCount: number;
+  /** Miniatura del primer mockup de la primera sesión (o null). */
+  coverThumbnailUrl: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -55,6 +73,8 @@ export class ProductsService {
     private readonly sizesRepository: Repository<ProductSize>,
     @InjectRepository(ProductColor)
     private readonly colorsRepository: Repository<ProductColor>,
+    @InjectRepository(FitCategory)
+    private readonly fitCategoriesRepository: Repository<FitCategory>,
     private readonly sudomockService: SudomockService,
   ) {}
 
@@ -134,10 +154,42 @@ export class ProductsService {
     return this.findOne(saved.id);
   }
 
-  findAll(): Promise<Product[]> {
-    return this.productsRepository.find({
-      relations: { photoSessions: true },
+  /**
+   * Listado resumido para la grilla de productos. Incluye los contadores
+   * (sesiones, colores, tallas) y la miniatura del primer mockup de la
+   * primera sesión, sin arrastrar todo el detalle del producto.
+   */
+  async findAllSummaries(): Promise<ProductSummary[]> {
+    const products = await this.productsRepository.find({
+      relations: {
+        colors: true,
+        sizes: true,
+        photoSessions: { mockups: true },
+      },
       order: { createdAt: 'DESC' },
+    });
+
+    return products.map((product) => {
+      // Primera sesión por fecha de creación; su primer mockup por posición.
+      const sessions = [...(product.photoSessions ?? [])].sort(
+        (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
+      );
+      const firstSession = sessions[0];
+      const firstMockup = firstSession
+        ? this.sortItems(firstSession.mockups)[0]
+        : undefined;
+
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        sessionCount: product.photoSessions?.length ?? 0,
+        colorCount: product.colors?.length ?? 0,
+        sizeCount: product.sizes?.length ?? 0,
+        coverThumbnailUrl: firstMockup?.thumbnailUrl ?? null,
+        createdAt: product.createdAt,
+        updatedAt: product.updatedAt,
+      };
     });
   }
 
@@ -149,6 +201,7 @@ export class ProductsService {
         colors: true,
         printAreas: true,
         photoSessions: { mockups: true, printArea: true },
+        fitCategory: true,
       },
       order: { photoSessions: { createdAt: 'ASC' } },
     });
@@ -177,7 +230,32 @@ export class ProductsService {
     if (dto.careInstructions !== undefined) {
       product.careInstructions = dto.careInstructions ?? null;
     }
-    if (dto.fit !== undefined) product.fit = dto.fit ?? null;
+    if (dto.fit !== undefined) {
+      product.fit = dto.fit ?? null;
+      // Si cambia el ajuste y no se envía una categoría nueva, se limpia la
+      // categoría actual (pertenecía al ajuste anterior).
+      if (dto.fitCategoryId === undefined) {
+        product.fitCategoryId = null;
+      }
+    }
+    if (dto.fitCategoryId !== undefined) {
+      if (dto.fitCategoryId === null) {
+        product.fitCategoryId = null;
+      } else {
+        const category = await this.fitCategoriesRepository.findOne({
+          where: { id: dto.fitCategoryId },
+        });
+        if (!category) {
+          throw new BadRequestException('La categoría de ajuste no existe');
+        }
+        if (category.fit !== product.fit) {
+          throw new BadRequestException(
+            'La categoría no pertenece al ajuste del producto',
+          );
+        }
+        product.fitCategoryId = category.id;
+      }
+    }
     if (dto.basePriceCents !== undefined) {
       product.basePriceCents = dto.basePriceCents ?? null;
     }
@@ -219,6 +297,7 @@ export class ProductsService {
           productId: id,
           name: input.name,
           labelName: input.labelName ?? null,
+          priceCents: input.priceCents ?? null,
           measurements: this.sanitizeMeasurements(input.measurements),
           position: index,
         }),
@@ -405,14 +484,26 @@ export class ProductsService {
     if (!target) {
       throw new NotFoundException('Mockup no encontrado en la sesión');
     }
-    await this.sessionMockupsRepository.remove(target);
 
-    // Recompacta posiciones de los restantes.
+    // Borrado y recompactación con operaciones directas por id. No usamos
+    // save() sobre entidades del grafo de la sesión: PhotoSession.mockups
+    // es una relación `cascade`, así que guardar su colección re-inserta
+    // los mockups (incluido el que se acaba de quitar) con ids nuevos.
+    await this.sessionMockupsRepository.delete({ id: sessionMockupId });
+
     const remaining = session.mockups
       .filter((m) => m.id !== sessionMockupId)
       .sort((a, b) => a.position - b.position);
-    remaining.forEach((m, index) => (m.position = index));
-    await this.sessionMockupsRepository.save(remaining);
+    await Promise.all(
+      remaining.map((m, index) =>
+        m.position === index
+          ? Promise.resolve()
+          : this.sessionMockupsRepository.update(
+              { id: m.id },
+              { position: index },
+            ),
+      ),
+    );
 
     return this.findSession(productId, sessionId);
   }
@@ -435,11 +526,14 @@ export class ProductsService {
       );
     }
 
-    dto.sessionMockupIds.forEach((id, index) => {
-      const item = byId.get(id);
-      if (item) item.position = index;
-    });
-    await this.sessionMockupsRepository.save(session.mockups);
+    // Actualiza posiciones con updates directos por id. No usamos
+    // save(session.mockups): al ser una relación `cascade`, guardar la
+    // colección reinserta los mockups con ids nuevos (duplicándolos).
+    await Promise.all(
+      dto.sessionMockupIds.map((id, index) =>
+        this.sessionMockupsRepository.update({ id }, { position: index }),
+      ),
+    );
 
     return this.findSession(productId, sessionId);
   }

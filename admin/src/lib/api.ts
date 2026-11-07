@@ -3,7 +3,7 @@
 
 const API_URL = import.meta.env.VITE_API_URL ?? "/api"
 
-const TOKEN_KEY = "kult.admin.token"
+const TOKEN_KEY = "inkttex.admin.token"
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)

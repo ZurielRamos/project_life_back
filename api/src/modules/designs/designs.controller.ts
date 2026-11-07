@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -11,18 +12,23 @@ import {
   Post,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions.enum';
 import type { UploadedImage } from '../cloudinary/cloudinary.service';
 import {
   DesignsService,
   type DesignSeoView,
+  type DesignSummary,
   type PreviewResult,
+  type RenderSvgResult,
 } from './designs.service';
 import { GenerateDesignDto } from './dto/generate-design.dto';
 import { PreviewDesignDto } from './dto/preview-design.dto';
 import { RegenerateSeoDto } from './dto/regenerate-seo.dto';
+import { RenderSvgDto } from './dto/render-svg.dto';
 import { SetPlacementsDto } from './dto/set-placements.dto';
 import { UpdateDesignDto } from './dto/update-design.dto';
 import { UploadImageDto } from './dto/upload-image.dto';
@@ -54,7 +60,7 @@ export class DesignsController {
 
   @Get()
   @RequirePermissions(Permissions.DesignsRead)
-  findAll(): Promise<Design[]> {
+  findAll(): Promise<DesignSummary[]> {
     return this.designsService.findAll();
   }
 
@@ -99,6 +105,36 @@ export class DesignsController {
   @RequirePermissions(Permissions.DesignsUpdate)
   uploadImage(@Body() dto: UploadImageDto): Promise<UploadedImage> {
     return this.designsService.uploadImage(dto);
+  }
+
+  /**
+   * Rasteriza una plantilla SVG con los valores de texto indicados y
+   * devuelve el PNG (en Cloudinary) + el SVG fuente + fuentes faltantes.
+   */
+  @Post('render-svg')
+  @RequirePermissions(Permissions.DesignsUpdate)
+  renderSvg(@Body() dto: RenderSvgDto): Promise<RenderSvgResult> {
+    return this.designsService.renderSvg(dto);
+  }
+
+  /**
+   * Descarga un ZIP con los archivos del diseño (imágenes por área, SVG y
+   * fuentes), nombrado con el código del diseño.
+   */
+  @Get(':id/download')
+  @RequirePermissions(Permissions.DesignsRead)
+  @Header('Content-Type', 'application/zip')
+  async download(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { filename, buffer } = await this.designsService.buildDesignZip(id);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    );
+    res.setHeader('Content-Length', String(buffer.length));
+    res.end(buffer);
   }
 
   /** Reemplaza por completo las colocaciones del diseño. */

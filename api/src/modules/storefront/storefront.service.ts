@@ -1,11 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import type { SmartObject } from 'sudomock';
 import { AiService } from '../ai/ai.service';
 import { Design } from '../designs/entities/design.entity';
+import { DesignRender } from '../designs/entities/design-render.entity';
 import type { ProductFit } from '../products/entities/product.entity';
 import { ListStorefrontDesignsDto } from './dto/list-storefront-designs.dto';
 import { SearchStorefrontDesignsDto } from './dto/search-storefront-designs.dto';
+import { StoresService } from '../stores/stores.service';
 
 /** Un color del producto con todas sus imágenes (renders). */
 export interface StorefrontColor {
@@ -20,6 +23,16 @@ export interface StorefrontColor {
 export interface StorefrontSize {
   name: string;
   label: string | null;
+  /**
+   * Precio específico de la talla en centavos (o null para usar el precio
+   * base del producto, `priceCents`).
+   */
+  priceCents: number | null;
+  /**
+   * Medidas por dimensión del size chart (claves = sizeChartColumns).
+   * Para la guía de tallas pública.
+   */
+  measurements: Record<string, number>;
 }
 
 /** Producto de tienda derivado de un diseño listo. */
@@ -40,11 +53,34 @@ export interface StorefrontProduct {
   colors: StorefrontColor[];
   /** Tallas disponibles (solo en el detalle). */
   sizes: StorefrontSize[];
+  /** Dimensiones del size chart (columnas), p.ej. ["Chest","Sleeve"]. */
+  sizeChartColumns: string[];
+  /** Unidad del size chart ("cm" | "inch"). */
+  sizeChartUnit: string | null;
   /** Composición de la tela (solo en el detalle). */
   composition: string | null;
   /** Instrucciones de cuidado (solo en el detalle). */
   careInstructions: string | null;
   createdAt: string;
+  /**
+   * Datos para "crea tu propia camiseta": permiten al front dibujar el
+   * lienzo del área de diseño y disparar el render con la imagen del usuario.
+   * Null si el diseño no se puede personalizar (sin sesión/mockup/dise).
+   */
+  customization: StorefrontCustomization | null;
+}
+
+/** Datos públicos para personalizar un producto con imagen propia. */
+export interface StorefrontCustomization {
+  /** Producto base a renderizar. */
+  productId: string;
+  /** Sesión (la que generó los renders de este diseño) a reemplazar. */
+  sessionId: string;
+  /** uuid del smart object "dise" del primer mockup de la sesión. */
+  designSmartObjectUuid: string;
+  /** Tamaño del área de diseño en px (lienzo). */
+  areaWidthPx: number;
+  areaHeightPx: number;
 }
 
 /** Respuesta paginada de la tienda. */
@@ -62,7 +98,22 @@ export class StorefrontService {
     private readonly designsRepository: Repository<Design>,
     private readonly dataSource: DataSource,
     private readonly aiService: AiService,
+    private readonly storesService: StoresService,
   ) {}
+
+  /**
+   * Ids de diseños visibles para la tienda indicada (por slug). Devuelve
+   * null si no se pidió tienda (catálogo completo). Lanza 404 si la tienda
+   * no existe o está inactiva.
+   */
+  private async resolveStoreScope(slug?: string): Promise<string[] | null> {
+    if (!slug) return null;
+    const store = await this.storesService.findActiveBySlug(slug);
+    if (!store) {
+      throw new NotFoundException('Tienda no encontrada');
+    }
+    return this.storesService.getVisibleDesignIds(store.id);
+  }
 
   /**
    * Búsqueda SEMÁNTICA pública de diseños. Embebe la consulta con el mismo
@@ -84,6 +135,11 @@ export class StorefrontService {
       return { items: [], total: 0, limit, offset };
     }
 
+    const scope = await this.resolveStoreScope(query.store);
+    if (scope && scope.length === 0) {
+      return { items: [], total: 0, limit, offset };
+    }
+
     let embedding: number[] | null = null;
     try {
       embedding = await this.aiService.embed(q);
@@ -93,7 +149,7 @@ export class StorefrontService {
 
     // Fallback a texto si no pudimos generar el vector.
     if (!embedding) {
-      return this.listDesigns({ q, limit, offset });
+      return this.listDesigns({ q, limit, offset, store: query.store });
     }
 
     const literal = `[${embedding.join(',')}]`;
@@ -105,15 +161,16 @@ export class StorefrontService {
          JOIN designs d ON d.id = de.design_id
         WHERE de.embedding IS NOT NULL
           AND d.status = 'ready'
+          AND ($3::uuid[] IS NULL OR d.id = ANY($3::uuid[]))
         ORDER BY de.embedding <=> $1::vector
         LIMIT $2`,
-      [literal, limit + offset + 50],
+      [literal, limit + offset + 50, scope],
     );
 
     const orderedIds = rows.map((r) => r.design_id);
     if (orderedIds.length === 0) {
       // Sin vecinos: intentamos texto como último recurso.
-      return this.listDesigns({ q, limit, offset });
+      return this.listDesigns({ q, limit, offset, store: query.store });
     }
 
     // Cargamos los diseños y preservamos el orden de similitud.
@@ -148,6 +205,11 @@ export class StorefrontService {
     const limit = query.limit ?? 24;
     const offset = query.offset ?? 0;
 
+    const scope = await this.resolveStoreScope(query.store);
+    if (scope && scope.length === 0) {
+      return { items: [], total: 0, limit, offset };
+    }
+
     const qb = this.designsRepository
       .createQueryBuilder('design')
       .leftJoinAndSelect('design.product', 'product')
@@ -160,6 +222,9 @@ export class StorefrontService {
       )
       .where('design.status = :ready', { ready: 'ready' });
 
+    if (scope) {
+      qb.andWhere('design.id IN (:...scope)', { scope });
+    }
     if (query.fit) {
       qb.andWhere('product.fit = :fit', { fit: query.fit });
     }
@@ -192,18 +257,32 @@ export class StorefrontService {
   }
 
   /** Detalle de un producto de tienda por slug SEO. */
-  async getBySlug(slug: string): Promise<StorefrontProduct> {
-    const design = await this.designsRepository
+  async getBySlug(
+    slug: string,
+    storeSlug?: string,
+  ): Promise<StorefrontProduct> {
+    const scope = await this.resolveStoreScope(storeSlug);
+    const qb = this.designsRepository
       .createQueryBuilder('design')
       .leftJoinAndSelect('design.product', 'product')
       .leftJoinAndSelect('product.sizes', 'size')
+      .leftJoinAndSelect('product.colors', 'color')
+      .leftJoinAndSelect('product.photoSessions', 'session')
+      .leftJoinAndSelect('session.mockups', 'mockup')
       .leftJoinAndSelect('design.seo', 'seo')
       .leftJoinAndSelect('design.renders', 'render', 'render.status = :done', {
         done: 'done',
       })
       .where('seo.slug = :slug', { slug })
-      .andWhere('design.status = :ready', { ready: 'ready' })
-      .getOne();
+      .andWhere('design.status = :ready', { ready: 'ready' });
+
+    if (scope) {
+      // Lista vacía => ningún diseño visible en esta tienda.
+      qb.andWhere('design.id IN (:...scope)', {
+        scope: scope.length ? scope : ['00000000-0000-0000-0000-000000000000'],
+      });
+    }
+    const design = await qb.getOne();
 
     if (!design) {
       throw new NotFoundException('Producto no encontrado');
@@ -238,11 +317,18 @@ export class StorefrontService {
     const colors = [...byColor.values()];
     const cover = colors[0]?.images[0] ?? null;
 
+    const customization = this.buildCustomization(design, renders);
+
     // Tallas (solo vienen cargadas en el detalle via getBySlug).
     const sizes: StorefrontSize[] = (product?.sizes ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
-      .map((s) => ({ name: s.name, label: s.labelName }));
+      .map((s) => ({
+        name: s.name,
+        label: s.labelName,
+        priceCents: s.priceCents ?? null,
+        measurements: s.measurements ?? {},
+      }));
 
     return {
       id: design.id,
@@ -257,12 +343,57 @@ export class StorefrontService {
       cover,
       colors,
       sizes,
+      sizeChartColumns: product?.sizeChartColumns ?? [],
+      sizeChartUnit: product?.sizeChartUnit ?? null,
       composition: product?.composition ?? null,
       careInstructions: product?.careInstructions ?? null,
       createdAt:
         design.createdAt instanceof Date
           ? design.createdAt.toISOString()
           : String(design.createdAt),
+      customization,
+    };
+  }
+
+  /**
+   * Construye los datos de personalización: la sesión que generó los renders
+   * de este diseño y el smart object "dise" (uuid + tamaño) de su primer
+   * mockup, para que el front dibuje el lienzo y dispare el render. Devuelve
+   * null si falta cualquier pieza.
+   */
+  private buildCustomization(
+    design: Design,
+    doneRenders: DesignRender[],
+  ): StorefrontCustomization | null {
+    const product = design.product;
+    if (!product) return null;
+
+    // Sesión usada por los renders (la primera que aparezca).
+    const sessionId = doneRenders[0]?.sessionId;
+    if (!sessionId) return null;
+    const session = (product.photoSessions ?? []).find(
+      (s) => s.id === sessionId,
+    );
+    if (!session) return null;
+
+    // Primer mockup de esa sesión (por posición) y su smart object "dise".
+    const mockup = [...(session.mockups ?? [])].sort(
+      (a, b) => a.position - b.position,
+    )[0];
+    if (!mockup) return null;
+
+    const smartObjects = (mockup.smartObjects ?? []) as SmartObject[];
+    const dise = smartObjects.find((so) =>
+      (so.name ?? '').toLowerCase().startsWith('dise'),
+    );
+    if (!dise) return null;
+
+    return {
+      productId: product.id,
+      sessionId: session.id,
+      designSmartObjectUuid: dise.uuid,
+      areaWidthPx: dise.size?.width ?? 0,
+      areaHeightPx: dise.size?.height ?? 0,
     };
   }
 }

@@ -43,6 +43,18 @@ export class DesignPlacement {
   @Column({ name: 'image_public_id', type: 'varchar', nullable: true })
   imagePublicId: string | null;
 
+  /**
+   * Si la imagen se generó desde una plantilla SVG con texto editable:
+   * URL del SVG fuente (raw en Cloudinary) y los valores de los campos
+   * `<text id>` usados. Permiten re-editar los nombres sin resubir el SVG.
+   * Null cuando la imagen se cargó directamente (no vino de un SVG).
+   */
+  @Column({ name: 'svg_url', type: 'text', nullable: true })
+  svgUrl: string | null;
+
+  @Column({ name: 'field_values', type: 'jsonb', nullable: true })
+  fieldValues: Record<string, string> | null;
+
   // --- Geometría en milímetros dentro del área de impresión ---
 
   /** Offset X desde la esquina superior izquierda del área (mm). */
@@ -64,6 +76,18 @@ export class DesignPlacement {
   /** Rotación en grados (horario). */
   @Column({ type: 'double precision', default: 0 })
   rotation: number;
+
+  /**
+   * Tamaño (px) del área de diseño CONTRA LA QUE se autoró la geometría. Lo
+   * envía el editor al generar. Permite al render escalar la geometría al
+   * área del mockup destino cuando difieren de tamaño (evita que el diseño se
+   * desubique/encoja). Null en diseños antiguos (se infiere en el render).
+   */
+  @Column({ name: 'author_area_width_px', type: 'double precision', nullable: true })
+  authorAreaWidthPx: number | null;
+
+  @Column({ name: 'author_area_height_px', type: 'double precision', nullable: true })
+  authorAreaHeightPx: number | null;
 
   /** Orden de apilado dentro del área (0-based). */
   @Column({ name: 'z_index', type: 'int', default: 0 })

@@ -1,4 +1,4 @@
-import { PosHeader } from "@/components/pos/pos-header"
+import { AppHeader } from "@/components/app-header"
 import { ProductPanel } from "@/components/pos/product-panel"
 import { TransactionPanel } from "@/components/pos/transaction-panel"
 
@@ -8,7 +8,7 @@ import { TransactionPanel } from "@/components/pos/transaction-panel"
 export function HomePage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-      <PosHeader />
+      <AppHeader title="Create Transaction" />
       <div className="flex min-h-0 flex-1 gap-6">
         <ProductPanel />
         <TransactionPanel />

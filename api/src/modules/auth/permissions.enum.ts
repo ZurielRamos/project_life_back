@@ -31,11 +31,34 @@ export enum Permissions {
   /** Importar plantillas desde SudoMock a una sesión. */
   ProductsImport = 'products:import',
 
+  // Categorías de ajuste (fit) del catálogo
+  FitCategoriesRead = 'fit-categories:read',
+  FitCategoriesCreate = 'fit-categories:create',
+  FitCategoriesDelete = 'fit-categories:delete',
+
   // Diseños
   DesignsCreate = 'designs:create',
   DesignsRead = 'designs:read',
   DesignsUpdate = 'designs:update',
   DesignsDelete = 'designs:delete',
+
+  // Fuentes (tipografías para plantillas SVG)
+  FontsRead = 'fonts:read',
+  FontsCreate = 'fonts:create',
+  FontsDelete = 'fonts:delete',
+
+  // Ajustes de generación (límites de "crea tu camiseta")
+  GenerationSettingsRead = 'generation-settings:read',
+  GenerationSettingsUpdate = 'generation-settings:update',
+
+  // Tiendas (ecommerce configurables con dominio, productos y diseños)
+  StoresCreate = 'stores:create',
+  StoresRead = 'stores:read',
+  StoresUpdate = 'stores:update',
+  StoresDelete = 'stores:delete',
+
+  // Clientes / leads del storefront
+  CustomersRead = 'customers:read',
 }
 
 /** Lista plana de todos los permisos, útil para seeds y validaciones. */

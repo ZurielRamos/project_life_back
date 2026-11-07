@@ -100,4 +100,31 @@ export class CloudinaryService implements OnModuleInit {
   async deleteByPublicId(publicId: string): Promise<void> {
     await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
   }
+
+  /**
+   * Sube un archivo arbitrario (no-imagen) a Cloudinary como `raw`, a partir
+   * de un data URI o base64. Se usa para fuentes (.ttf/.woff2) y para el SVG
+   * fuente de un diseño. Devuelve la URL servible y el publicId.
+   */
+  async uploadRaw(
+    data: string,
+    options: { folder?: string; publicId?: string } = {},
+  ): Promise<{ url: string; publicId: string; bytes: number }> {
+    const response: UploadApiResponse = await cloudinary.uploader.upload(data, {
+      folder: options.folder ?? this.defaultFolder,
+      public_id: options.publicId,
+      resource_type: 'raw',
+      overwrite: true,
+    });
+    return {
+      url: response.secure_url,
+      publicId: response.public_id,
+      bytes: response.bytes,
+    };
+  }
+
+  /** Elimina un asset `raw` (fuente/SVG) de Cloudinary por su publicId. */
+  async deleteRawByPublicId(publicId: string): Promise<void> {
+    await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+  }
 }

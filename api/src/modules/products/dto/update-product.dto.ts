@@ -5,11 +5,14 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
+import { PRODUCT_FITS } from '../entities/product.entity';
 import { ModelInfoDto } from './model-info.dto';
 
 /**
@@ -49,9 +52,19 @@ export class UpdateProductDto {
   @MaxLength(1000)
   careInstructions?: string;
 
+  /** Ajuste del producto (enum fijo). Null/omitido no lo cambia. */
   @IsOptional()
-  @IsIn(['men', 'women', 'unisex', 'kids', 'family'])
-  fit?: 'men' | 'women' | 'unisex' | 'kids' | 'family';
+  @IsIn(PRODUCT_FITS)
+  fit?: (typeof PRODUCT_FITS)[number];
+
+  /**
+   * Categoría del ajuste (ver /fit-categories). Debe pertenecer al `fit`
+   * del producto. `null` limpia la categoría.
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID('4')
+  fitCategoryId?: string | null;
 
   @IsOptional()
   @IsInt()

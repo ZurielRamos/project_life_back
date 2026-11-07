@@ -17,10 +17,15 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './modules/auth/guards/permissions.guard';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { AiModule } from './modules/ai/ai.module';
+import { CustomersModule } from './modules/customers/customers.module';
 import { DesignsModule } from './modules/designs/designs.module';
+import { FitCategoriesModule } from './modules/fit-categories/fit-categories.module';
+import { FontsModule } from './modules/fonts/fonts.module';
 import { ProductsModule } from './modules/products/products.module';
+import { SettingsModule } from './modules/settings/settings.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
+import { StoresModule } from './modules/stores/stores.module';
 import { SudomockModule } from './modules/sudomock/sudomock.module';
 import { UsersModule } from './modules/users/users.module';
 
@@ -61,6 +66,11 @@ import { UsersModule } from './modules/users/users.module';
           username: config.get<string>('REDIS_USERNAME'),
           password: config.get<string>('REDIS_PASSWORD'),
         },
+        // Prefijo de claves de BullMQ. Permite AISLAR las colas entre
+        // entornos que comparten el mismo Redis (p.ej. local vs el deploy en
+        // EasyPanel): si ambos usan el mismo prefijo, sus workers se roban los
+        // jobs entre sí. Pon BULL_PREFIX=bull_dev en local para separarte.
+        prefix: config.get<string>('BULL_PREFIX') ?? 'bull',
         defaultJobOptions: {
           attempts: 2,
           backoff: { type: 'exponential', delay: 3000 },
@@ -94,8 +104,13 @@ import { UsersModule } from './modules/users/users.module';
     RolesModule,
     PermissionsModule,
     ProductsModule,
+    FitCategoriesModule,
+    FontsModule,
     DesignsModule,
     StorefrontModule,
+    CustomersModule,
+    SettingsModule,
+    StoresModule,
     SeedModule,
   ],
   controllers: [AppController],

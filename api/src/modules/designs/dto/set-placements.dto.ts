@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -40,9 +41,30 @@ export class PlacementInputDto {
   @IsNumber()
   rotation?: number;
 
+  /** Tamaño (px) del área de diseño contra la que se autoró la geometría. */
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  authorAreaWidthPx?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  authorAreaHeightPx?: number;
+
   @IsOptional()
   @IsNumber()
   zIndex?: number;
+
+  /** URL del SVG fuente (si la imagen se generó desde una plantilla). */
+  @IsOptional()
+  @IsString()
+  svgUrl?: string;
+
+  /** Valores de los campos `<text id>` usados al generar la imagen. */
+  @IsOptional()
+  @IsObject()
+  fieldValues?: Record<string, string>;
 }
 
 /**

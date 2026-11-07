@@ -10,6 +10,11 @@ export class SearchStorefrontDesignsDto {
   @IsString()
   q: string;
 
+  /** Slug de la tienda: limita el catálogo a lo que esa tienda publica. */
+  @IsOptional()
+  @IsString()
+  store?: string;
+
   @IsOptional()
   @IsInt()
   @Min(1)

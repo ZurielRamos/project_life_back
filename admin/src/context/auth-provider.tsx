@@ -76,6 +76,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null)
   }, [])
 
+  // Re-consulta /auth/me para reflejar cambios de perfil (nombre, avatar…).
+  const refresh = useCallback(async () => {
+    if (!getToken()) return
+    try {
+      setUser(await getMe())
+    } catch {
+      // Si falla (token expirado), cerramos sesión de forma segura.
+      clearToken()
+      setUser(null)
+    }
+  }, [])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -83,8 +95,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: Boolean(user),
       signIn,
       signOut,
+      refresh,
     }),
-    [user, loading, signIn, signOut]
+    [user, loading, signIn, signOut, refresh]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

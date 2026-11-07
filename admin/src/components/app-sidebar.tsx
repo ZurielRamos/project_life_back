@@ -1,8 +1,18 @@
-import { Home, LogOut, Package, Palette, type LucideIcon } from "lucide-react"
+import {
+  Home,
+  LogOut,
+  Package,
+  Palette,
+  SlidersHorizontal,
+  Store,
+  Users,
+  type LucideIcon,
+} from "lucide-react"
 import { NavLink } from "react-router-dom"
 
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/hooks/use-auth"
+import logoInkttex from "@/assets/logo-inkttex.svg"
 
 interface NavItem {
   to: string
@@ -15,6 +25,9 @@ const navItems: NavItem[] = [
   { to: "/", label: "Inicio", icon: Home, end: true },
   { to: "/products", label: "Productos", icon: Package },
   { to: "/designs", label: "Diseños", icon: Palette },
+  { to: "/stores", label: "Tiendas", icon: Store },
+  { to: "/users", label: "Usuarios", icon: Users },
+  { to: "/settings", label: "Ajustes", icon: SlidersHorizontal },
 ]
 
 export function AppSidebar() {
@@ -23,8 +36,8 @@ export function AppSidebar() {
   return (
     <aside className="bg-neutral-950 flex w-16 flex-col items-center gap-1 py-5">
       {/* Logo */}
-      <div className="mb-4 flex size-10 items-center justify-center rounded-full bg-lime-400">
-        <div className="size-5 rounded-full border-[3px] border-neutral-900 border-t-transparent" />
+      <div className="mb-4 flex size-10 items-center justify-center">
+        <img src={logoInkttex} alt="Inkttex" className="size-10" />
       </div>
 
       <nav className="flex flex-1 flex-col items-center gap-1">
@@ -39,7 +52,7 @@ export function AppSidebar() {
               cn(
                 "flex size-10 items-center justify-center rounded-xl transition-colors",
                 isActive
-                  ? "bg-lime-400 text-neutral-900"
+                  ? "bg-brand-teal text-neutral-900"
                   : "text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
               )
             }

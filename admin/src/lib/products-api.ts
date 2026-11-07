@@ -7,6 +7,7 @@ import type {
   PhotoSession,
   PhotoSessionInput,
   Product,
+  ProductSummary,
   RemoteSudomockListResult,
   ReorderMockupsPayload,
   SetColorsPayload,
@@ -36,9 +37,9 @@ export function listRemoteSudomockMockups({
 
 // --- Productos ---
 
-/** Lista los productos (las sesiones vienen sin sus mockups). */
-export function listProducts(): Promise<Product[]> {
-  return apiFetch<Product[]>("/products")
+/** Lista los productos como resúmenes (contadores + miniatura de portada). */
+export function listProducts(): Promise<ProductSummary[]> {
+  return apiFetch<ProductSummary[]>("/products")
 }
 
 /** Obtiene un producto con sus sesiones y mockups embebidos. */

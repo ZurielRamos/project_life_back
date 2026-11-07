@@ -1,5 +1,8 @@
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import type { ProductFit } from '../../products/entities/product.entity';
+import {
+  PRODUCT_FITS,
+  type ProductFit,
+} from '../../products/entities/product.entity';
 
 /**
  * Filtros de la tienda pública. `fit` mapea el género de la sección del
@@ -7,7 +10,7 @@ import type { ProductFit } from '../../products/entities/product.entity';
  */
 export class ListStorefrontDesignsDto {
   @IsOptional()
-  @IsEnum(['men', 'women', 'unisex', 'kids', 'family'], {
+  @IsEnum(PRODUCT_FITS, {
     message: 'fit debe ser men, women, unisex, kids o family',
   })
   fit?: ProductFit;
@@ -16,6 +19,11 @@ export class ListStorefrontDesignsDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  /** Slug de la tienda: limita el catálogo a lo que esa tienda publica. */
+  @IsOptional()
+  @IsString()
+  store?: string;
 
   /** Búsqueda de texto por nombre del diseño/producto. */
   @IsOptional()

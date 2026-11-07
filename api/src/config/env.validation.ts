@@ -19,8 +19,11 @@ export interface EnvVars {
   REDIS_PORT?: number;
   REDIS_USERNAME?: string;
   REDIS_PASSWORD?: string;
+  BULL_PREFIX?: string;
   JWT_SECRET: string;
   JWT_EXPIRES_IN: string;
+  CUSTOMER_JWT_SECRET?: string;
+  CUSTOMER_JWT_EXPIRES_IN?: string;
   ADMIN_EMAIL: string;
   ADMIN_PASSWORD: string;
   SUDOMOCK_API_KEY: string;
@@ -35,7 +38,13 @@ export interface EnvVars {
   OPENROUTER_EMBEDDING_MODEL?: string;
   BRAND_NAME?: string;
   SITE_URL?: string;
+  STORES_BASE_DOMAIN?: string;
   CLIENT_DIST_PATH?: string;
+  WHATSAPP_API_URL?: string;
+  WHATSAPP_API_TOKEN?: string;
+  WHATSAPP_INBOX_ID?: string;
+  WHATSAPP_TEMPLATE_NAME?: string;
+  WHATSAPP_LANGUAGE_CODE?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvVars {
@@ -76,9 +85,7 @@ export function validateEnv(config: Record<string, unknown>): EnvVars {
     NODE_ENV: String(config.NODE_ENV ?? 'development'),
     PORT: toNumber(config.PORT, 3000, 'PORT'),
     CORS_ORIGIN:
-      config.CORS_ORIGIN === undefined
-        ? undefined
-        : String(config.CORS_ORIGIN),
+      config.CORS_ORIGIN === undefined ? undefined : String(config.CORS_ORIGIN),
     DB_HOST: String(config.DB_HOST),
     DB_PORT: toNumber(config.DB_PORT, 5432, 'DB_PORT'),
     DB_USERNAME: String(config.DB_USERNAME),
@@ -101,8 +108,18 @@ export function validateEnv(config: Record<string, unknown>): EnvVars {
       config.REDIS_PASSWORD === undefined
         ? undefined
         : String(config.REDIS_PASSWORD),
+    BULL_PREFIX:
+      config.BULL_PREFIX === undefined ? undefined : String(config.BULL_PREFIX),
     JWT_SECRET: String(config.JWT_SECRET),
     JWT_EXPIRES_IN: String(config.JWT_EXPIRES_IN ?? '1h'),
+    CUSTOMER_JWT_SECRET:
+      config.CUSTOMER_JWT_SECRET === undefined
+        ? undefined
+        : String(config.CUSTOMER_JWT_SECRET),
+    CUSTOMER_JWT_EXPIRES_IN:
+      config.CUSTOMER_JWT_EXPIRES_IN === undefined
+        ? undefined
+        : String(config.CUSTOMER_JWT_EXPIRES_IN),
     ADMIN_EMAIL: String(config.ADMIN_EMAIL ?? 'admin@kult.local'),
     ADMIN_PASSWORD: String(config.ADMIN_PASSWORD ?? 'changeme123'),
     SUDOMOCK_API_KEY: String(config.SUDOMOCK_API_KEY),
@@ -134,9 +151,33 @@ export function validateEnv(config: Record<string, unknown>): EnvVars {
       config.BRAND_NAME === undefined ? undefined : String(config.BRAND_NAME),
     SITE_URL:
       config.SITE_URL === undefined ? undefined : String(config.SITE_URL),
+    STORES_BASE_DOMAIN:
+      config.STORES_BASE_DOMAIN === undefined
+        ? undefined
+        : String(config.STORES_BASE_DOMAIN),
     CLIENT_DIST_PATH:
       config.CLIENT_DIST_PATH === undefined
         ? undefined
         : String(config.CLIENT_DIST_PATH),
+    WHATSAPP_API_URL:
+      config.WHATSAPP_API_URL === undefined
+        ? undefined
+        : String(config.WHATSAPP_API_URL),
+    WHATSAPP_API_TOKEN:
+      config.WHATSAPP_API_TOKEN === undefined
+        ? undefined
+        : String(config.WHATSAPP_API_TOKEN),
+    WHATSAPP_INBOX_ID:
+      config.WHATSAPP_INBOX_ID === undefined
+        ? undefined
+        : String(config.WHATSAPP_INBOX_ID),
+    WHATSAPP_TEMPLATE_NAME:
+      config.WHATSAPP_TEMPLATE_NAME === undefined
+        ? undefined
+        : String(config.WHATSAPP_TEMPLATE_NAME),
+    WHATSAPP_LANGUAGE_CODE:
+      config.WHATSAPP_LANGUAGE_CODE === undefined
+        ? undefined
+        : String(config.WHATSAPP_LANGUAGE_CODE),
   };
 }

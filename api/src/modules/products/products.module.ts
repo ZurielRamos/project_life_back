@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FitCategory } from '../fit-categories/entities/fit-category.entity';
 import { PhotoSession } from './entities/photo-session.entity';
 import { PrintArea } from './entities/print-area.entity';
 import { Product } from './entities/product.entity';
@@ -18,6 +19,7 @@ import { ProductsService } from './products.service';
       PrintArea,
       PhotoSession,
       SessionMockup,
+      FitCategory,
     ]),
   ],
   controllers: [ProductsController],

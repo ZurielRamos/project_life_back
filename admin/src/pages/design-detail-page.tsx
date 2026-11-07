@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
+  Download,
   Loader2,
   RefreshCw,
   Sparkles,
@@ -11,6 +12,7 @@ import {
 
 import { ApiError } from "@/lib/api"
 import {
+  downloadDesignZip,
   getDesign,
   getDesignStatus,
   regenerateDesign,
@@ -21,6 +23,7 @@ import type {
   DesignSeoView,
   DesignStatus,
 } from "@/types/api"
+import { AppHeader } from "@/components/app-header"
 import { Button } from "@/components/ui/button"
 import { RegenerateSeoDialog } from "@/components/designs/regenerate-seo-dialog"
 
@@ -68,6 +71,7 @@ export function DesignDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const [seoOpen, setSeoOpen] = useState(false)
   const [seo, setSeo] = useState<DesignSeoView | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -149,6 +153,23 @@ export function DesignDetailPage() {
     }
   }
 
+  async function handleDownload() {
+    if (!id) return
+    setDownloading(true)
+    setError(null)
+    try {
+      await downloadDesignZip(id)
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : "No se pudo descargar el diseño."
+      setError(message)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -198,40 +219,48 @@ export function DesignDetailPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
-      <div>
-        <Link
-          to="/designs"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900"
-        >
-          <ArrowLeft className="size-4" />
-          Volver a diseños
-        </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-neutral-900">
-                {design.name}
-              </h1>
-              <StatusBadge status={design.status} />
-            </div>
-            <p className="mt-1 text-sm text-neutral-500">
-              {design.product?.name}
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={handleRegenerate}
-            disabled={regenerating || isGenerating}
+      <AppHeader
+        title={design.name}
+        description={design.product?.name ?? undefined}
+        leading={
+          <Link
+            to="/designs"
+            aria-label="Volver a diseños"
+            className="flex size-10 items-center justify-center rounded-full border bg-white text-neutral-600 hover:text-neutral-900"
           >
-            {regenerating ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            Regenerar
-          </Button>
-        </div>
-      </div>
+            <ArrowLeft className="size-4" />
+          </Link>
+        }
+        actions={
+          <>
+            <StatusBadge status={design.status} />
+            <Button
+              variant="outline"
+              onClick={handleDownload}
+              disabled={downloading}
+            >
+              {downloading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Descargar diseño
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleRegenerate}
+              disabled={regenerating || isGenerating}
+            >
+              {regenerating ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Regenerar
+            </Button>
+          </>
+        }
+      />
 
       {error && (
         <div

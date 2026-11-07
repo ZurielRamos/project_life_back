@@ -18,6 +18,7 @@ import {
 } from "@/lib/products-api"
 import type { PhotoSession, Product, ProductFit } from "@/types/api"
 import { Button } from "@/components/ui/button"
+import { AppHeader } from "@/components/app-header"
 import { AddSessionDialog } from "@/components/products/add-session-dialog"
 import { EditAttributesDialog } from "@/components/products/edit-attributes-dialog"
 import { EditColorsDialog } from "@/components/products/edit-colors-dialog"
@@ -98,8 +99,18 @@ export function ProductDetailPage() {
   async function handleRemoveMockup(sessionId: string, mockupId: string) {
     if (!id) return
     try {
-      const session = await removeSessionMockup(id, sessionId, mockupId)
-      upsertSession(session)
+      await removeSessionMockup(id, sessionId, mockupId)
+      // Actualiza el estado local quitando el mockup. No dependemos de la
+      // sesión devuelta: filtramos por id para que la imagen desaparezca ya.
+      setProduct((prev) => {
+        if (!prev) return prev
+        const photoSessions = prev.photoSessions.map((s) =>
+          s.id === sessionId
+            ? { ...s, mockups: (s.mockups ?? []).filter((m) => m.id !== mockupId) }
+            : s
+        )
+        return { ...prev, photoSessions }
+      })
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "No se pudo quitar el mockup."
@@ -157,38 +168,29 @@ export function ProductDetailPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-6">
-      {/* Encabezado */}
-      <div>
-        <Link
-          to="/products"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900"
-        >
-          <ArrowLeft className="size-4" />
-          Volver a productos
-        </Link>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-neutral-900">
-              {product.name}
-            </h1>
-            {product.description && (
-              <p className="mt-1 max-w-2xl text-sm text-neutral-500">
-                {product.description}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={handleDeleteProduct}
-            >
-              <Trash2 className="size-4" />
-              Eliminar
-            </Button>
-          </div>
-        </div>
-      </div>
+      <AppHeader
+        title={product.name}
+        description={product.description ?? undefined}
+        leading={
+          <Link
+            to="/products"
+            aria-label="Volver a productos"
+            className="flex size-10 items-center justify-center rounded-full border bg-white text-neutral-600 hover:text-neutral-900"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+        }
+        actions={
+          <Button
+            variant="outline"
+            className="text-destructive hover:text-destructive"
+            onClick={handleDeleteProduct}
+          >
+            <Trash2 className="size-4" />
+            Eliminar
+          </Button>
+        }
+      />
 
       {/* Detalles / atributos */}
       <section className="rounded-2xl border bg-white p-4">
@@ -209,6 +211,10 @@ export function ProductDetailPage() {
           <Field
             label="Ajuste"
             value={product.fit ? FIT_LABELS[product.fit] : null}
+          />
+          <Field
+            label="Categoría de ajuste"
+            value={product.fitCategory?.name ?? null}
           />
           <Field
             label="Precio"

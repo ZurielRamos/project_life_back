@@ -5,11 +5,13 @@ import { DesignsService } from './designs.service';
 import { DESIGN_QUEUE, type DesignJob } from './designs.queue';
 
 /**
- * Worker de generación de renders. Concurrencia 1: SudoMock (trial) solo
- * admite una petición a la vez. Procesa un render por job y, al final,
- * un job 'finalize' que genera el SEO y marca el estado del diseño.
+ * Worker de generación de renders. Concurrencia 3: la cuenta pro de SudoMock
+ * admite hasta 3 renders simultáneos. Procesa un render por job y un job
+ * 'finalize' que, al terminar TODOS los renders, genera el SEO y marca el
+ * estado. Como ya no hay orden garantizado (concurrencia > 1), `finalize` se
+ * re-encola a sí mismo mientras queden renders pendientes/en proceso.
  */
-@Processor(DESIGN_QUEUE, { concurrency: 1 })
+@Processor(DESIGN_QUEUE, { concurrency: 3 })
 export class DesignsProcessor extends WorkerHost {
   private readonly logger = new Logger(DesignsProcessor.name);
 

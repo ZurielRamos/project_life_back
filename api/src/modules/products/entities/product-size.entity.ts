@@ -39,6 +39,13 @@ export class ProductSize {
   labelName: string | null;
 
   /**
+   * Precio específico de esta talla en centavos (opcional). Si es null, el
+   * producto usa su precio base (Product.basePriceCents) como fallback.
+   */
+  @Column({ name: 'price_cents', type: 'int', nullable: true })
+  priceCents: number | null;
+
+  /**
    * Medidas del size chart por dimensión. Claves = Product.sizeChartColumns.
    * Ej: { "Chest": 54.5, "Sleeve": 57.2 }.
    */

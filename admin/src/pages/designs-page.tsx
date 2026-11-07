@@ -5,12 +5,14 @@ import {
   CheckCircle2,
   Loader2,
   Palette,
+  Pencil,
   Plus,
 } from "lucide-react"
 
 import { ApiError } from "@/lib/api"
 import { listDesigns } from "@/lib/designs-api"
-import type { Design, DesignStatus } from "@/types/api"
+import type { DesignStatus, DesignSummary } from "@/types/api"
+import { AppHeader } from "@/components/app-header"
 import { Button } from "@/components/ui/button"
 
 const STATUS_LABEL: Record<DesignStatus, string> = {
@@ -44,7 +46,7 @@ function StatusBadge({ status }: { status: DesignStatus }) {
 
 export function DesignsPage() {
   const navigate = useNavigate()
-  const [designs, setDesigns] = useState<Design[]>([])
+  const [designs, setDesigns] = useState<DesignSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -83,19 +85,16 @@ export function DesignsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Diseños</h1>
-          <p className="text-sm text-neutral-500">
-            Crea diseños colocando imágenes en las áreas de impresión de un
-            producto.
-          </p>
-        </div>
-        <Button onClick={() => navigate("/designs/new")}>
-          <Plus className="size-4" />
-          Nuevo diseño
-        </Button>
-      </header>
+      <AppHeader
+        title="Diseños"
+        description="Crea diseños colocando imágenes en las áreas de impresión de un producto."
+        actions={
+          <Button onClick={() => navigate("/designs/new")}>
+            <Plus className="size-4" />
+            Nuevo diseño
+          </Button>
+        }
+      />
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
@@ -118,25 +117,47 @@ export function DesignsPage() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {designs.map((design) => (
-            <Link
-              key={design.id}
-              to={`/designs/${design.id}`}
-              className="flex flex-col gap-2 rounded-2xl border bg-white p-4 transition-colors hover:border-neutral-300"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <h3 className="font-semibold text-neutral-900">
-                  {design.name}
-                </h3>
-                <Palette className="size-5 shrink-0 text-neutral-300" />
-              </div>
-              <p className="text-sm text-neutral-500">
-                {design.product?.name ?? "Producto"}
-              </p>
-              <StatusBadge status={design.status} />
-            </Link>
-          ))}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {designs.map((design) => (
+              <Link
+                key={design.id}
+                to={`/designs/${design.id}`}
+                className="flex flex-col overflow-hidden rounded-xl border bg-white transition-colors hover:border-neutral-300"
+              >
+                {/* Portada: primer render logrado del diseño. */}
+                <div className="relative flex aspect-square items-center justify-center bg-neutral-100">
+                  {design.coverImageUrl ? (
+                    <img
+                      src={design.coverImageUrl}
+                      alt={design.name}
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <Palette className="size-8 text-neutral-300" />
+                  )}
+                  {design.editable && (
+                    <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-neutral-900/85 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      <Pencil className="size-2.5" />
+                      Editable
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-1 flex-col gap-1 p-2.5">
+                  <h3 className="line-clamp-2 text-sm font-medium text-neutral-900">
+                    {design.name}
+                  </h3>
+                  <p className="truncate text-xs text-neutral-500">
+                    {design.productName ?? "Producto"}
+                  </p>
+                  <div className="mt-auto pt-1">
+                    <StatusBadge status={design.status} />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
       )}
     </div>

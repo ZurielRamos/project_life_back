@@ -1,4 +1,4 @@
-// Genera favicon.ico (+ PNGs) a partir de src/assets/logo.svg.
+// Genera favicon.ico (+ PNGs) a partir de src/assets/logo-inkttex.svg.
 // Uso: node scripts/gen-favicon.mjs
 import { readFile, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
@@ -7,7 +7,7 @@ import sharp from "sharp"
 import pngToIco from "png-to-ico"
 
 const root = path.dirname(fileURLToPath(import.meta.url)) + "/.."
-const logoPath = path.join(root, "src/assets/logo.svg")
+const logoPath = path.join(root, "src/assets/logo-inkttex.svg")
 const publicDir = path.join(root, "public")
 
 const svg = await readFile(logoPath)

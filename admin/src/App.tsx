@@ -7,9 +7,14 @@ import { HomePage } from "@/pages/home-page"
 import { LoginPage } from "@/pages/login-page"
 import { ProductsPage } from "@/pages/products-page"
 import { ProductDetailPage } from "@/pages/product-detail-page"
+import { ProfilePage } from "@/pages/profile-page"
 import { DesignsPage } from "@/pages/designs-page"
 import { DesignNewPage } from "@/pages/design-new-page"
 import { DesignDetailPage } from "@/pages/design-detail-page"
+import { UsersPage } from "@/pages/users-page"
+import { SettingsPage } from "@/pages/settings-page"
+import { StoresPage } from "@/pages/stores-page"
+import { StoreDetailPage } from "@/pages/store-detail-page"
 
 function App() {
   return (
@@ -28,6 +33,11 @@ function App() {
               <Route path="/designs" element={<DesignsPage />} />
               <Route path="/designs/new" element={<DesignNewPage />} />
               <Route path="/designs/:id" element={<DesignDetailPage />} />
+              <Route path="/stores" element={<StoresPage />} />
+              <Route path="/stores/:id" element={<StoreDetailPage />} />
+              <Route path="/users" element={<UsersPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/profile" element={<ProfilePage />} />
             </Route>
           </Route>
 

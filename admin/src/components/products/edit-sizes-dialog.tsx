@@ -25,6 +25,8 @@ interface EditSizesDialogProps {
 interface SizeRow {
   name: string
   labelName: string
+  /** Precio por talla en unidades de moneda (vacío = usar precio base). */
+  price: string
   measurements: Record<string, string>
 }
 
@@ -40,6 +42,7 @@ export function EditSizesDialog({
     product.sizes.map((s) => ({
       name: s.name,
       labelName: s.labelName ?? "",
+      price: s.priceCents != null ? (s.priceCents / 100).toString() : "",
       measurements: Object.fromEntries(
         Object.entries(s.measurements).map(([k, v]) => [k, String(v)])
       ),
@@ -50,7 +53,10 @@ export function EditSizesDialog({
   const [error, setError] = useState<string | null>(null)
 
   function addRow() {
-    setRows((prev) => [...prev, { name: "", labelName: "", measurements: {} }])
+    setRows((prev) => [
+      ...prev,
+      { name: "", labelName: "", price: "", measurements: {} },
+    ])
   }
 
   function removeRow(index: number) {
@@ -112,9 +118,18 @@ export function EditSizesDialog({
                 if (!Number.isNaN(num)) measurements[col] = num
               }
             }
+            // Precio por talla: unidades de moneda -> centavos. Vacío => null
+            // (la tienda usará el precio base del producto como fallback).
+            const priceNum = Number(r.price)
+            const priceCents =
+              r.price.trim() !== "" && !Number.isNaN(priceNum)
+                ? Math.round(priceNum * 100)
+                : null
+
             return {
               name: r.name.trim(),
               labelName: r.labelName.trim() || undefined,
+              priceCents,
               measurements,
             }
           }),
@@ -224,6 +239,12 @@ export function EditSizesDialog({
                 <tr className="border-b text-left text-xs text-neutral-500">
                   <th className="p-2 font-medium">Talla</th>
                   <th className="p-2 font-medium">Etiqueta</th>
+                  <th className="p-2 font-medium">
+                    Precio
+                    <span className="ml-1 font-normal text-neutral-400">
+                      (opcional)
+                    </span>
+                  </th>
                   {columns.map((col) => (
                     <th key={col} className="p-2 font-medium">
                       {col}
@@ -253,6 +274,23 @@ export function EditSizesDialog({
                         }
                         placeholder="Mediano"
                         className="h-8 w-32"
+                      />
+                    </td>
+                    <td className="p-1.5">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={row.price}
+                        onChange={(e) =>
+                          updateRow(index, { price: e.target.value })
+                        }
+                        placeholder={
+                          product.basePriceCents != null
+                            ? (product.basePriceCents / 100).toString()
+                            : "Base"
+                        }
+                        className="h-8 w-24"
                       />
                     </td>
                     {columns.map((col) => (

@@ -1,0 +1,36 @@
+/**
+ * Slugs que no se pueden usar como tienda porque, con el dominio comodín
+ * (*.dominio.com), serían subdominios con otro propósito (web, API, correo…).
+ */
+export const RESERVED_STORE_SLUGS: ReadonlySet<string> = new Set([
+  'www',
+  'api',
+  'admin',
+  'app',
+  'mail',
+  'email',
+  'smtp',
+  'imap',
+  'pop',
+  'ftp',
+  'cdn',
+  'static',
+  'assets',
+  'media',
+  'dev',
+  'staging',
+  'test',
+  'demo',
+  'blog',
+  'docs',
+  'status',
+  'support',
+  'help',
+  'tienda',
+  'tiendas',
+  'store',
+  'stores',
+  'shop',
+  'login',
+  'auth',
+]);

@@ -1,10 +1,12 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsInt,
   IsObject,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -20,6 +22,15 @@ export class ProductSizeInputDto {
   @IsString()
   @MaxLength(80)
   labelName?: string;
+
+  /**
+   * Precio específico de la talla en centavos (opcional). Si se omite/null,
+   * la tienda usa el precio base del producto como fallback.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  priceCents?: number | null;
 
   /**
    * Medidas por dimensión del size chart. Las claves deben coincidir con

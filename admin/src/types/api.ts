@@ -12,6 +12,8 @@ export interface UserView {
   id: string
   email: string
   name: string | null
+  /** URL del avatar subido (opcional; si falta se genera uno con iniciales). */
+  avatarUrl?: string | null
   isActive: boolean
   roles: RoleRef[]
   createdAt: string
@@ -26,6 +28,8 @@ export interface AuthenticatedUser {
   id: string
   email: string
   name?: string | null
+  /** URL del avatar subido (opcional; si falta se genera uno con iniciales). */
+  avatarUrl?: string | null
   roles: string[]
   permissions: string[]
 }
@@ -53,7 +57,24 @@ export interface RegisterPayload {
 export interface SmartObject {
   uuid: string
   name?: string
+  /** Tamaño del smart object en px de la plantilla. */
+  size?: { width: number; height: number }
+  /** Posición/caja del smart object en la plantilla. */
+  position?: { x: number; y: number; width: number; height: number }
   [key: string]: unknown
+}
+
+/**
+ * Área de diseño derivada de un smart object "dise" del primer mockup de la
+ * primera sesión. Las dimensiones están en px de la plantilla (B1): el
+ * lienzo trabaja en ese espacio y el render mapea por `smartObjectUuid`.
+ */
+export interface DesignArea {
+  /** uuid del smart object; viaja como `printAreaId` en los payloads. */
+  smartObjectUuid: string
+  name: string
+  widthPx: number
+  heightPx: number
 }
 
 /** Capa de texto editable de una plantilla. */
@@ -113,8 +134,72 @@ export interface PhotoSession {
   updatedAt: string
 }
 
+/** Ajuste/género del producto (enum fijo). */
 export type ProductFit = "men" | "women" | "unisex" | "kids" | "family"
 export type MeasurementUnit = "cm" | "inch"
+
+/**
+ * Categoría administrable que pertenece a un ajuste. Cada ajuste tiene su
+ * propio conjunto de categorías.
+ */
+export interface FitCategory {
+  id: string
+  /** Ajuste al que pertenece. */
+  fit: ProductFit
+  /** Nombre visible, p.ej. "Oversize". */
+  name: string
+  position: number
+  createdAt: string
+  updatedAt: string
+}
+
+/** Body para crear una categoría dentro de un ajuste. */
+export interface CreateFitCategoryPayload {
+  fit: ProductFit
+  name: string
+}
+
+/** Tipografía registrada para plantillas SVG. */
+export interface Font {
+  id: string
+  family: string
+  fileUrl: string
+  filePublicId: string
+  format: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Body para registrar una fuente (archivo como data URI). */
+export interface CreateFontPayload {
+  family: string
+  dataUri: string
+  format?: string
+}
+
+/** Un campo de texto a sustituir, con su alineación respecto al original. */
+export interface RenderSvgField {
+  key: string
+  value: string
+  anchorX: number
+  anchorY: number
+  textAnchor: "start" | "middle" | "end"
+}
+
+/** Body para rasterizar una plantilla SVG. */
+export interface RenderSvgPayload {
+  svg: string
+  fields?: RenderSvgField[]
+  targetWidth?: number
+}
+
+/** Resultado de rasterizar un SVG: imagen + SVG fuente + fuentes faltantes. */
+export interface RenderSvgResult {
+  image: UploadedImage
+  svgUrl: string
+  svgPublicId: string
+  missingFonts: string[]
+}
 
 /** Info del modelo que aparece en las fotos. */
 export interface ModelInfo {
@@ -130,6 +215,8 @@ export interface ProductSize {
   productId: string
   name: string
   labelName: string | null
+  /** Precio específico de la talla en centavos (null = usar precio base). */
+  priceCents: number | null
   /** Medidas por dimensión (claves = sizeChartColumns). */
   measurements: Record<string, number>
   position: number
@@ -158,7 +245,27 @@ export interface PrintArea {
   position: number
 }
 
-/** Producto. En GET /products las sesiones vienen sin mockups. */
+/**
+ * Resumen de producto que devuelve GET /products (para la grilla). Trae los
+ * contadores y la miniatura de portada en vez del detalle completo.
+ */
+export interface ProductSummary {
+  id: string
+  name: string
+  description: string | null
+  /** Cantidad de sesiones de fotos. */
+  sessionCount: number
+  /** Cantidad de colores configurados. */
+  colorCount: number
+  /** Cantidad de tallas configuradas. */
+  sizeCount: number
+  /** Miniatura del primer mockup de la primera sesión (o null). */
+  coverThumbnailUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Producto completo (GET /products/:id). */
 export interface Product {
   id: string
   name: string
@@ -168,6 +275,9 @@ export interface Product {
   composition: string | null
   careInstructions: string | null
   fit: ProductFit | null
+  /** Categoría del ajuste (pertenece a `fit`). */
+  fitCategoryId: string | null
+  fitCategory: FitCategory | null
   basePriceCents: number | null
   currency: string | null
   sizeChartUnit: MeasurementUnit
@@ -207,6 +317,8 @@ export interface UpdateProductPayload {
   composition?: string
   careInstructions?: string
   fit?: ProductFit
+  /** Categoría del ajuste; `null` la limpia. */
+  fitCategoryId?: string | null
   basePriceCents?: number
   currency?: string
   sizeChartUnit?: MeasurementUnit
@@ -218,6 +330,8 @@ export interface UpdateProductPayload {
 export interface ProductSizeInput {
   name: string
   labelName?: string
+  /** Precio por talla en centavos (opcional; null/omitido = precio base). */
+  priceCents?: number | null
   measurements?: Record<string, number>
 }
 
@@ -303,6 +417,9 @@ export interface DesignPlacement {
   printAreaId: string
   imageUrl: string
   imagePublicId: string | null
+  /** SVG fuente (si la imagen se generó desde una plantilla). */
+  svgUrl: string | null
+  fieldValues: Record<string, string> | null
   xMm: number
   yMm: number
   widthMm: number
@@ -337,6 +454,23 @@ export interface DesignRender {
   imageUrl: string | null
   errorMessage: string | null
   position: number
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Resumen de diseño para la grilla (GET /designs). Trae la portada y el
+ * flag de editable en vez del detalle completo.
+ */
+export interface DesignSummary {
+  id: string
+  name: string
+  status: DesignStatus
+  productName: string | null
+  /** Primera imagen de render lograda (portada), o null. */
+  coverImageUrl: string | null
+  /** true si el diseño tiene algún SVG editable. */
+  editable: boolean
   createdAt: string
   updatedAt: string
 }
@@ -412,7 +546,13 @@ export interface PlacementInput {
   widthMm: number
   heightMm: number
   rotation?: number
+  /** Tamaño (px) del área de diseño contra la que se autoró la geometría. */
+  authorAreaWidthPx?: number
+  authorAreaHeightPx?: number
   zIndex?: number
+  /** Si la imagen vino de una plantilla SVG: su origen para re-edición. */
+  svgUrl?: string
+  fieldValues?: Record<string, string>
 }
 
 export interface SetPlacementsPayload {
@@ -436,4 +576,157 @@ export interface PreviewResult {
   printAreaId: string
   imageUrl: string
   seo: DesignSeoView | null
+}
+
+// --- Usuarios, roles y permisos ---
+
+/**
+ * Permiso atómico del sistema (entidad Permission del backend).
+ * El `name` sigue el formato "recurso:accion" (ej. "users:create").
+ */
+export interface Permission {
+  id: string
+  name: string
+  resource: string
+  action: string
+  description: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * Rol con sus permisos resueltos (entidad Role del backend).
+ * Los roles son contenedores de permisos; la autorización se evalúa
+ * por permiso, no por nombre de rol.
+ */
+export interface Role {
+  id: string
+  name: string
+  description: string | null
+  /** Marca los roles del sistema (ej. "admin"); no se pueden borrar ni renombrar. */
+  isSystem: boolean
+  permissions: Permission[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** Payload para crear un rol (POST /roles). */
+export interface CreateRolePayload {
+  name: string
+  description?: string
+  /** IDs de los permisos a asociar al rol. */
+  permissionIds?: string[]
+}
+
+/** Payload para actualizar un rol (PATCH /roles/:id). */
+export interface UpdateRolePayload {
+  name?: string
+  description?: string
+  permissionIds?: string[]
+}
+
+/** Payload para crear un usuario (POST /users). */
+export interface CreateUserPayload {
+  email: string
+  password: string
+  name?: string
+  /** IDs de los roles a asignar al usuario. */
+  roleIds?: string[]
+}
+
+/** Payload para actualizar un usuario (PATCH /users/:id). */
+export interface UpdateUserPayload {
+  email?: string
+  /** Solo se envía si se quiere cambiar la contraseña. */
+  password?: string
+  name?: string
+  isActive?: boolean
+  roleIds?: string[]
+}
+
+// --- Tiendas ---
+
+/** Redes sociales de una tienda (todas opcionales). */
+export interface StoreSocialLinks {
+  instagram?: string
+  facebook?: string
+  tiktok?: string
+  x?: string
+  youtube?: string
+  pinterest?: string
+  whatsapp?: string
+}
+
+/** Campos comunes de una tienda. */
+interface StoreBase {
+  id: string
+  name: string
+  slug: string
+  isActive: boolean
+  title: string | null
+  tagline: string | null
+  description: string | null
+  logoUrl: string | null
+  faviconUrl: string | null
+  primaryColor: string | null
+  contactEmail: string | null
+  phone: string | null
+  address: string | null
+  socialLinks: StoreSocialLinks
+  currency: string
+  locale: string
+  seoTitle: string | null
+  seoDescription: string | null
+  /** Dominio personalizado (host sin protocolo) o null. */
+  domain: string | null
+  /** URL pública por subdominio (<slug>.<dominio base>) o null si no está configurada. */
+  publicUrl: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+/** Fila del listado (GET /stores): trae contadores del catálogo. */
+export interface StoreSummary extends StoreBase {
+  productCount: number
+  designCount: number
+}
+
+/** Tienda completa (GET /stores/:id) con los ids del catálogo publicado. */
+export interface Store extends StoreBase {
+  productIds: string[]
+  designIds: string[]
+}
+
+/** Payload para crear una tienda (POST /stores). */
+export interface CreateStorePayload {
+  name: string
+  slug: string
+  isActive?: boolean
+}
+
+/**
+ * Payload para actualizar una tienda (PATCH /stores/:id). Una cadena vacía
+ * limpia el campo. Los ids de catálogo reemplazan el conjunto completo.
+ */
+export interface UpdateStorePayload {
+  name?: string
+  slug?: string
+  isActive?: boolean
+  title?: string
+  tagline?: string
+  description?: string
+  logoUrl?: string
+  faviconUrl?: string
+  primaryColor?: string
+  contactEmail?: string
+  phone?: string
+  address?: string
+  socialLinks?: StoreSocialLinks
+  currency?: string
+  locale?: string
+  seoTitle?: string
+  seoDescription?: string
+  domain?: string
+  productIds?: string[]
+  designIds?: string[]
 }

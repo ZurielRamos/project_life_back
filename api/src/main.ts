@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { buildCorsOrigin } from './common/cors-origin';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -15,11 +16,16 @@ async function bootstrap() {
 
   // CORS para permitir que el frontend (admin) consuma la API.
   // CORS_ORIGIN admite una lista separada por comas; por defecto, Vite dev.
+  // Además se aceptan los subdominios de las tiendas (*.STORES_BASE_DOMAIN).
   const corsOrigin = configService.get<string>('CORS_ORIGIN');
+  const allowedOrigins = corsOrigin
+    ? corsOrigin.split(',').map((o) => o.trim())
+    : ['http://localhost:5173'];
   app.enableCors({
-    origin: corsOrigin
-      ? corsOrigin.split(',').map((o) => o.trim())
-      : ['http://localhost:5173'],
+    origin: buildCorsOrigin(
+      allowedOrigins,
+      configService.get<string>('STORES_BASE_DOMAIN'),
+    ),
     credentials: true,
   });
 

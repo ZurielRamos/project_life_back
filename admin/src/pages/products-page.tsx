@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Images, Loader2, Package, Plus } from "lucide-react"
+import { Images, Loader2, Package, Palette, Plus, Ruler } from "lucide-react"
 
 import { ApiError } from "@/lib/api"
 import { listProducts } from "@/lib/products-api"
-import type { Product } from "@/types/api"
+import type { ProductSummary } from "@/types/api"
+import { AppHeader } from "@/components/app-header"
 import { Button } from "@/components/ui/button"
 import { CreateProductDialog } from "@/components/products/create-product-dialog"
 
 export function ProductsPage() {
   const navigate = useNavigate()
-  const [products, setProducts] = useState<Product[]>([])
+  const [products, setProducts] = useState<ProductSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -38,18 +39,16 @@ export function ProductsPage() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900">Productos</h1>
-          <p className="text-sm text-neutral-500">
-            Gestiona tus productos y sus sesiones de fotos.
-          </p>
-        </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" />
-          Nuevo producto
-        </Button>
-      </header>
+      <AppHeader
+        title="Productos"
+        description="Gestiona tus productos y sus sesiones de fotos."
+        actions={
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="size-4" />
+            Nuevo producto
+          </Button>
+        }
+      />
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
@@ -72,34 +71,51 @@ export function ProductsPage() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {products.map((product) => {
-            const sessionCount = product.photoSessions?.length ?? 0
-            return (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {products.map((product) => (
               <Link
                 key={product.id}
                 to={`/products/${product.id}`}
-                className="flex flex-col gap-2 rounded-2xl border bg-white p-4 transition-colors hover:border-neutral-300"
+                className="flex flex-col overflow-hidden rounded-xl border bg-white transition-colors hover:border-neutral-300"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold text-neutral-900">
+                {/* Portada: primer mockup de la primera sesión. */}
+                <div className="flex aspect-square items-center justify-center bg-neutral-100">
+                  {product.coverThumbnailUrl ? (
+                    <img
+                      src={product.coverThumbnailUrl}
+                      alt={product.name}
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <Images className="size-8 text-neutral-300" />
+                  )}
+                </div>
+
+                <div className="flex flex-1 flex-col gap-1 p-2.5">
+                  <h3 className="line-clamp-2 text-sm font-medium text-neutral-900">
                     {product.name}
                   </h3>
-                  <Package className="size-5 shrink-0 text-neutral-300" />
-                </div>
-                {product.description && (
-                  <p className="line-clamp-2 text-sm text-neutral-500">
-                    {product.description}
-                  </p>
-                )}
-                <div className="mt-auto flex items-center gap-1.5 pt-2 text-xs text-neutral-500">
-                  <Images className="size-3.5" />
-                  {sessionCount}{" "}
-                  {sessionCount === 1 ? "sesión" : "sesiones"} de fotos
+
+                  {/* Contadores: sesiones, colores y tallas. */}
+                  <div className="mt-auto flex flex-wrap items-center gap-x-2.5 gap-y-1 pt-1 text-[11px] text-neutral-500">
+                    <span className="flex items-center gap-1">
+                      <Images className="size-3" />
+                      {product.sessionCount}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Palette className="size-3" />
+                      {product.colorCount}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Ruler className="size-3" />
+                      {product.sizeCount}
+                    </span>
+                  </div>
                 </div>
               </Link>
-            )
-          })}
+            ))}
+          </div>
         </div>
       )}
 

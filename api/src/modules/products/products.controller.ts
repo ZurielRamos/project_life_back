@@ -26,6 +26,7 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { PhotoSession } from './entities/photo-session.entity';
 import { Product } from './entities/product.entity';
 import {
+  ProductSummary,
   ProductsService,
   RemoteMockupListResult,
 } from './products.service';
@@ -58,8 +59,8 @@ export class ProductsController {
 
   @Get()
   @RequirePermissions(Permissions.ProductsRead)
-  findAll(): Promise<Product[]> {
-    return this.productsService.findAll();
+  findAll(): Promise<ProductSummary[]> {
+    return this.productsService.findAllSummaries();
   }
 
   @Get(':id')

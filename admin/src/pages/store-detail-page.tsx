@@ -1,0 +1,835 @@
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react"
+import { Link, useNavigate, useParams } from "react-router-dom"
+import {
+  ArrowLeft,
+  Copy,
+  ExternalLink,
+  Globe,
+  Loader2,
+  Package,
+  Palette,
+  Search,
+  Settings2,
+  Shapes,
+  Share2,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react"
+
+import { cn } from "@/lib/utils"
+import { ApiError } from "@/lib/api"
+import { listDesigns } from "@/lib/designs-api"
+import { listProducts } from "@/lib/products-api"
+import {
+  deleteStore,
+  getStore,
+  getStoresConfig,
+  updateStore,
+} from "@/lib/stores-api"
+import { useAuth } from "@/hooks/use-auth"
+import { useSubdomainAvailability } from "@/hooks/use-subdomain-availability"
+import type {
+  DesignSummary,
+  ProductSummary,
+  Store,
+  StoreSocialLinks,
+  UpdateStorePayload,
+} from "@/types/api"
+import { AppHeader } from "@/components/app-header"
+import { SubdomainStatus } from "@/components/stores/subdomain-status"
+import {
+  CatalogPicker,
+  type CatalogItem,
+} from "@/components/stores/catalog-picker"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+
+/** Estado editable del formulario (todo como string para inputs controlados). */
+interface FormState {
+  name: string
+  slug: string
+  isActive: boolean
+  title: string
+  tagline: string
+  description: string
+  logoUrl: string
+  faviconUrl: string
+  primaryColor: string
+  contactEmail: string
+  phone: string
+  address: string
+  currency: string
+  locale: string
+  seoTitle: string
+  seoDescription: string
+  domain: string
+  socialLinks: Record<keyof StoreSocialLinks, string>
+  productIds: string[]
+  designIds: string[]
+}
+
+const SOCIAL_FIELDS: { key: keyof StoreSocialLinks; label: string; placeholder: string }[] = [
+  { key: "instagram", label: "Instagram", placeholder: "https://instagram.com/mitienda" },
+  { key: "facebook", label: "Facebook", placeholder: "https://facebook.com/mitienda" },
+  { key: "tiktok", label: "TikTok", placeholder: "https://tiktok.com/@mitienda" },
+  { key: "x", label: "X (Twitter)", placeholder: "https://x.com/mitienda" },
+  { key: "youtube", label: "YouTube", placeholder: "https://youtube.com/@mitienda" },
+  { key: "pinterest", label: "Pinterest", placeholder: "https://pinterest.com/mitienda" },
+  { key: "whatsapp", label: "WhatsApp", placeholder: "+57 300 000 0000" },
+]
+
+function toForm(store: Store): FormState {
+  return {
+    name: store.name,
+    slug: store.slug,
+    isActive: store.isActive,
+    title: store.title ?? "",
+    tagline: store.tagline ?? "",
+    description: store.description ?? "",
+    logoUrl: store.logoUrl ?? "",
+    faviconUrl: store.faviconUrl ?? "",
+    primaryColor: store.primaryColor ?? "",
+    contactEmail: store.contactEmail ?? "",
+    phone: store.phone ?? "",
+    address: store.address ?? "",
+    currency: store.currency,
+    locale: store.locale,
+    seoTitle: store.seoTitle ?? "",
+    seoDescription: store.seoDescription ?? "",
+    domain: store.domain ?? "",
+    socialLinks: {
+      instagram: store.socialLinks.instagram ?? "",
+      facebook: store.socialLinks.facebook ?? "",
+      tiktok: store.socialLinks.tiktok ?? "",
+      x: store.socialLinks.x ?? "",
+      youtube: store.socialLinks.youtube ?? "",
+      pinterest: store.socialLinks.pinterest ?? "",
+      whatsapp: store.socialLinks.whatsapp ?? "",
+    },
+    productIds: store.productIds,
+    designIds: store.designIds,
+  }
+}
+
+type SectionId =
+  | "general"
+  | "brand"
+  | "contact"
+  | "domain"
+  | "seo"
+  | "products"
+  | "designs"
+
+const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
+  { id: "general", label: "General", icon: Settings2 },
+  { id: "brand", label: "Marca e información", icon: Palette },
+  { id: "contact", label: "Contacto y redes", icon: Share2 },
+  { id: "domain", label: "Dominio", icon: Globe },
+  { id: "seo", label: "SEO", icon: Search },
+  { id: "products", label: "Productos", icon: Package },
+  { id: "designs", label: "Diseños", icon: Shapes },
+]
+
+/** Campos del formulario que guarda cada sección (guardado independiente). */
+const SECTION_FIELDS: Record<SectionId, (keyof FormState)[]> = {
+  general: ["name", "isActive"],
+  brand: [
+    "title",
+    "tagline",
+    "description",
+    "logoUrl",
+    "faviconUrl",
+    "primaryColor",
+    "currency",
+    "locale",
+  ],
+  contact: ["contactEmail", "phone", "address", "socialLinks"],
+  domain: ["slug", "domain"],
+  seo: ["seoTitle", "seoDescription"],
+  products: ["productIds"],
+  designs: ["designIds"],
+}
+
+/** Sección activa del menú lateral; cada <Section> solo se muestra si coincide. */
+const ActiveSectionContext = createContext<SectionId>("general")
+
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: SectionId
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  const active = useContext(ActiveSectionContext)
+  if (active !== id) return null
+  return (
+    <section className="flex flex-col gap-4 rounded-2xl border bg-white p-6">
+      <div>
+        <h2 className="text-base font-semibold text-neutral-900">{title}</h2>
+        {description && (
+          <p className="text-sm text-neutral-500">{description}</p>
+        )}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function Field({
+  id,
+  label,
+  hint,
+  children,
+}: {
+  id: string
+  label: string
+  hint?: string
+  children: ReactNode
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      {children}
+      {hint && <p className="text-xs text-neutral-500">{hint}</p>}
+    </div>
+  )
+}
+
+export function StoreDetailPage() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const canUpdate = user?.permissions.includes("stores:update") ?? false
+  const canDelete = user?.permissions.includes("stores:delete") ?? false
+
+  const [store, setStore] = useState<Store | null>(null)
+  const [form, setForm] = useState<FormState | null>(null)
+  const [products, setProducts] = useState<ProductSummary[]>([])
+  const [designs, setDesigns] = useState<DesignSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [savedAt, setSavedAt] = useState<string | null>(null)
+  const [section, setSection] = useState<SectionId>("general")
+  const [baseDomain, setBaseDomain] = useState<string | null>(null)
+  // Disponibilidad del subdominio (se comprueba 1 s después de dejar de escribir).
+  const subdomain = useSubdomainAvailability(
+    form?.slug ?? "",
+    store?.slug ?? "",
+    store?.id
+  )
+
+  useEffect(() => {
+    if (!id) return
+    let active = true
+    setLoading(true)
+    Promise.all([
+      getStore(id),
+      getStoresConfig().catch(() => ({ baseDomain: null })),
+      // El catálogo es de solo lectura aquí; si falta permiso, queda vacío.
+      listProducts().catch(() => [] as ProductSummary[]),
+      listDesigns().catch(() => [] as DesignSummary[]),
+    ])
+      .then(([storeData, config, productsData, designsData]) => {
+        if (!active) return
+        setStore(storeData)
+        setBaseDomain(config.baseDomain)
+        setForm(toForm(storeData))
+        setProducts(productsData)
+        setDesigns(designsData)
+      })
+      .catch((err) => {
+        if (!active) return
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "No se pudo cargar la tienda."
+        )
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [id])
+
+  const productItems = useMemo<CatalogItem[]>(
+    () =>
+      products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        subtitle: `${p.colorCount} colores · ${p.sizeCount} tallas`,
+        imageUrl: p.coverThumbnailUrl,
+      })),
+    [products]
+  )
+
+  const designItems = useMemo<CatalogItem[]>(
+    () =>
+      designs.map((d) => ({
+        id: d.id,
+        name: d.name,
+        subtitle: d.productName,
+        imageUrl: d.coverImageUrl,
+        // Solo se pueden publicar diseños terminados.
+        disabled: d.status !== "ready",
+      })),
+    [designs]
+  )
+
+  function patch<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => (prev ? { ...prev, [key]: value } : prev))
+  }
+
+  function patchSocial(key: keyof StoreSocialLinks, value: string) {
+    setForm((prev) =>
+      prev
+        ? { ...prev, socialLinks: { ...prev.socialLinks, [key]: value } }
+        : prev
+    )
+  }
+
+  /** Guarda solo los campos de la sección activa. */
+  async function handleSave() {
+    if (!store || !form) return
+    const keys = SECTION_FIELDS[section]
+    const payload: Record<string, unknown> = {}
+    for (const key of keys) {
+      const value = form[key]
+      payload[key] = typeof value === "string" ? value.trim() : value
+    }
+    // Moneda e idioma tienen valor por defecto: vacíos no se envían.
+    if (!payload.currency) delete payload.currency
+    if (!payload.locale) delete payload.locale
+
+    setSaving(true)
+    setError(null)
+    setSavedAt(null)
+    try {
+      const updated = await updateStore(
+        store.id,
+        payload as UpdateStorePayload
+      )
+      setStore(updated)
+      // Solo se refrescan los campos guardados; las ediciones pendientes de
+      // otras secciones se conservan.
+      const fresh = toForm(updated)
+      setForm((prev) => {
+        if (!prev) return prev
+        const next: Record<string, unknown> = { ...prev }
+        for (const key of keys) next[key] = fresh[key]
+        return next as unknown as FormState
+      })
+      setSavedAt(new Date().toLocaleTimeString())
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "No se pudo guardar la tienda."
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function changeSection(next: SectionId) {
+    setSection(next)
+    setError(null)
+    setSavedAt(null)
+  }
+
+  async function handleDelete() {
+    if (!store) return
+    if (
+      !window.confirm(
+        `¿Eliminar la tienda "${store.name}"? Los productos y diseños del catálogo principal no se verán afectados.`
+      )
+    ) {
+      return
+    }
+    try {
+      await deleteStore(store.id)
+      navigate("/stores", { replace: true })
+    } catch (err) {
+      window.alert(
+        err instanceof ApiError
+          ? err.message
+          : "No se pudo eliminar la tienda."
+      )
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Loader2 className="size-6 animate-spin text-neutral-400" />
+      </div>
+    )
+  }
+
+  if (!store || !form) {
+    return (
+      <div className="flex flex-col gap-4 p-6">
+        <div
+          role="alert"
+          className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border px-4 py-3 text-sm"
+        >
+          {error ?? "Tienda no encontrada."}
+        </div>
+        <Link to="/stores" className="text-sm underline">
+          Volver a tiendas
+        </Link>
+      </div>
+    )
+  }
+
+  const readOnly = !canUpdate
+  const savedSubdomain = store.slug === form.slug
+  // En Dominio no se guarda mientras el subdominio no esté confirmado libre.
+  const blocked =
+    section === "domain" &&
+    ["pending", "checking", "unavailable"].includes(subdomain.status)
+  const baseline = toForm(store)
+  const dirty = SECTION_FIELDS[section].some(
+    (key) => JSON.stringify(form[key]) !== JSON.stringify(baseline[key])
+  )
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
+      <AppHeader
+        title={store.name}
+        description={
+          store.domain ??
+          store.publicUrl?.replace("https://", "") ??
+          undefined
+        }
+        leading={
+          <Link
+            to="/stores"
+            aria-label="Volver a tiendas"
+            className="flex size-10 items-center justify-center rounded-full border bg-white text-neutral-600 hover:text-neutral-900"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+        }
+        actions={
+          <>
+            {canDelete && (
+              <Button
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={handleDelete}
+              >
+                <Trash2 className="size-4" />
+                Eliminar
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      <div className="flex min-h-0 flex-1 gap-6">
+        {/* Menú lateral de secciones */}
+        <nav
+          aria-label="Secciones de la tienda"
+          className="flex w-52 shrink-0 flex-col gap-1"
+        >
+          {SECTIONS.map(({ id: sectionId, label, icon: Icon }) => (
+            <button
+              key={sectionId}
+              type="button"
+              onClick={() => changeSection(sectionId)}
+              aria-current={section === sectionId ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors",
+                section === sectionId
+                  ? "bg-neutral-900 text-white"
+                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+              )}
+            >
+              <Icon className="size-4 shrink-0" />
+              {label}
+            </button>
+          ))}
+        </nav>
+  
+        {/* Contenido de la sección activa */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
+          {error && (
+            <div
+              role="alert"
+              className="border-destructive/50 bg-destructive/10 text-destructive rounded-md border px-4 py-3 text-sm"
+            >
+              {error}
+            </div>
+          )}
+    
+          <ActiveSectionContext.Provider value={section}>
+            <fieldset disabled={readOnly} className="flex flex-col gap-6">
+              <Section
+                id="general"
+                title="General"
+                description="Identificación interna y estado de la tienda."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field id="store-name" label="Nombre interno">
+                    <Input
+                      id="store-name"
+                      value={form.name}
+                      onChange={(e) => patch("name", e.target.value)}
+                      minLength={2}
+                      maxLength={80}
+                      required
+                    />
+                  </Field>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-neutral-700">
+                  <input
+                    type="checkbox"
+                    checked={form.isActive}
+                    onChange={(e) => patch("isActive", e.target.checked)}
+                    className="size-4"
+                  />
+                  Tienda activa
+                </label>
+              </Section>
+      
+              <Section
+                id="brand"
+                title="Marca e información"
+                description="Textos y recursos visuales que muestra la tienda."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field id="store-title" label="Título">
+                    <Input
+                      id="store-title"
+                      value={form.title}
+                      onChange={(e) => patch("title", e.target.value)}
+                      maxLength={120}
+                    />
+                  </Field>
+                  <Field id="store-tagline" label="Eslogan">
+                    <Input
+                      id="store-tagline"
+                      value={form.tagline}
+                      onChange={(e) => patch("tagline", e.target.value)}
+                      maxLength={200}
+                    />
+                  </Field>
+                </div>
+                <Field id="store-description" label="Descripción">
+                  <textarea
+                    id="store-description"
+                    value={form.description}
+                    onChange={(e) => patch("description", e.target.value)}
+                    maxLength={2000}
+                    rows={4}
+                    className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50"
+                  />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field id="store-logo" label="URL del logo">
+                    <Input
+                      id="store-logo"
+                      type="url"
+                      value={form.logoUrl}
+                      onChange={(e) => patch("logoUrl", e.target.value)}
+                      placeholder="https://…"
+                    />
+                  </Field>
+                  <Field id="store-favicon" label="URL del favicon">
+                    <Input
+                      id="store-favicon"
+                      type="url"
+                      value={form.faviconUrl}
+                      onChange={(e) => patch("faviconUrl", e.target.value)}
+                      placeholder="https://…"
+                    />
+                  </Field>
+                  <Field id="store-color" label="Color de marca">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        aria-label="Elegir color de marca"
+                        value={
+                          /^#[0-9a-fA-F]{6}$/.test(form.primaryColor)
+                            ? form.primaryColor
+                            : "#000000"
+                        }
+                        onChange={(e) => patch("primaryColor", e.target.value)}
+                        className="size-9 shrink-0 cursor-pointer rounded-md border bg-transparent p-1"
+                      />
+                      <Input
+                        id="store-color"
+                        value={form.primaryColor}
+                        onChange={(e) => patch("primaryColor", e.target.value)}
+                        placeholder="#00B3A6"
+                        maxLength={7}
+                      />
+                    </div>
+                  </Field>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    id="store-currency"
+                    label="Moneda"
+                    hint="Código de 3 letras (USD, COP, MXN…)."
+                  >
+                    <Input
+                      id="store-currency"
+                      value={form.currency}
+                      onChange={(e) => patch("currency", e.target.value)}
+                      maxLength={3}
+                    />
+                  </Field>
+                  <Field id="store-locale" label="Idioma">
+                    <Input
+                      id="store-locale"
+                      value={form.locale}
+                      onChange={(e) => patch("locale", e.target.value)}
+                      maxLength={10}
+                      placeholder="es"
+                    />
+                  </Field>
+                </div>
+              </Section>
+      
+              <Section
+                id="contact"
+                title="Contacto y redes sociales"
+                description="Datos de contacto y enlaces que se muestran en la tienda."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field id="store-email" label="Correo de contacto">
+                    <Input
+                      id="store-email"
+                      type="email"
+                      value={form.contactEmail}
+                      onChange={(e) => patch("contactEmail", e.target.value)}
+                    />
+                  </Field>
+                  <Field id="store-phone" label="Teléfono">
+                    <Input
+                      id="store-phone"
+                      value={form.phone}
+                      onChange={(e) => patch("phone", e.target.value)}
+                      maxLength={40}
+                    />
+                  </Field>
+                </div>
+                <Field id="store-address" label="Dirección">
+                  <Input
+                    id="store-address"
+                    value={form.address}
+                    onChange={(e) => patch("address", e.target.value)}
+                    maxLength={500}
+                  />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {SOCIAL_FIELDS.map(({ key, label, placeholder }) => (
+                    <Field key={key} id={`store-social-${key}`} label={label}>
+                      <Input
+                        id={`store-social-${key}`}
+                        value={form.socialLinks[key]}
+                        onChange={(e) => patchSocial(key, e.target.value)}
+                        placeholder={placeholder}
+                        maxLength={255}
+                      />
+                    </Field>
+                  ))}
+                </div>
+              </Section>
+      
+              <Section
+                id="domain"
+                title="Dominio"
+                description="Dirección web con la que los clientes acceden a esta tienda."
+              >
+                <div className="grid gap-2">
+                  <Label htmlFor="store-subdomain">Subdominio de la tienda</Label>
+                  <div className="flex w-full max-w-sm">
+                    <Input
+                      id="store-subdomain"
+                      value={form.slug}
+                      onChange={(e) =>
+                        patch(
+                          "slug",
+                          e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-")
+                        )
+                      }
+                      placeholder="mi-tienda"
+                      maxLength={60}
+                      required
+                      autoComplete="off"
+                      spellCheck={false}
+                      aria-invalid={subdomain.status === "unavailable"}
+                      aria-describedby="store-subdomain-status"
+                      className={cn("text-right", baseDomain && "rounded-r-none")}
+                    />
+                    {baseDomain && (
+                      <span className="flex items-center rounded-r-md border border-l-0 bg-neutral-50 px-3 text-sm whitespace-nowrap text-neutral-500">
+                        .{baseDomain}
+                      </span>
+                    )}
+                  </div>
+                  <div id="store-subdomain-status" className="min-h-4">
+                    <SubdomainStatus state={subdomain} />
+                  </div>
+                </div>
+              
+                {baseDomain ? (
+                  <div className="grid gap-2 rounded-xl bg-neutral-50 p-4">
+                    <p className="text-xs text-neutral-500">
+                      Tu tienda estará disponible en
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">
+                        https://{form.slug || "mi-tienda"}.{baseDomain}
+                      </code>
+                      {savedSubdomain && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            aria-label="Copiar URL"
+                            onClick={() =>
+                              void navigator.clipboard.writeText(
+                                `https://${store.slug}.${baseDomain}`
+                              )
+                            }
+                          >
+                            <Copy className="size-4" />
+                          </Button>
+                          <Button asChild variant="outline" size="icon">
+                            <a
+                              href={`https://${store.slug}.${baseDomain}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              aria-label="Abrir tienda"
+                            >
+                              <ExternalLink className="size-4" />
+                            </a>
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    {!savedSubdomain && (
+                      <p className="text-xs text-neutral-500">
+                        Guarda la sección para que este subdominio quede activo.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-neutral-500">
+                    Falta definir STORES_BASE_DOMAIN en la API para generar el subdominio.
+                  </p>
+                )}
+              
+                <Field
+                  id="store-domain"
+                  label="Dominio propio (opcional)"
+                  hint="Sin protocolo ni ruta, por ejemplo mitienda.com. Déjalo vacío para quitarlo."
+                >
+                  <Input
+                    id="store-domain"
+                    value={form.domain}
+                    onChange={(e) => patch("domain", e.target.value)}
+                    placeholder="mitienda.com"
+                    maxLength={253}
+                  />
+                </Field>
+                <p className="text-xs text-neutral-500">
+                  Por ahora el dominio propio solo se registra en la tienda. Para que
+                  responda hay que añadirlo también al proyecto del front en Vercel y
+                  apuntar su DNS; la verificación automática llegará en una etapa
+                  posterior.
+                </p>
+              </Section>
+      
+              <Section
+                id="seo"
+                title="SEO"
+                description="Metadatos para buscadores."
+              >
+                <Field id="store-seo-title" label="Título SEO">
+                  <Input
+                    id="store-seo-title"
+                    value={form.seoTitle}
+                    onChange={(e) => patch("seoTitle", e.target.value)}
+                    maxLength={120}
+                  />
+                </Field>
+                <Field id="store-seo-description" label="Descripción SEO">
+                  <textarea
+                    id="store-seo-description"
+                    value={form.seoDescription}
+                    onChange={(e) => patch("seoDescription", e.target.value)}
+                    maxLength={320}
+                    rows={3}
+                    className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50"
+                  />
+                </Field>
+              </Section>
+      
+              <Section
+                id="products"
+                title="Productos publicados"
+                description="Elige cuáles productos del catálogo principal vende esta tienda."
+              >
+                <CatalogPicker
+                  items={productItems}
+                  selectedIds={form.productIds}
+                  onChange={(ids) => patch("productIds", ids)}
+                  emptyMessage="No hay productos en el catálogo principal."
+                />
+              </Section>
+      
+              <Section
+                id="designs"
+                title="Diseños publicados"
+                description="Elige cuáles diseños del catálogo principal se publican aquí. Solo se pueden publicar los diseños terminados."
+              >
+                <CatalogPicker
+                  items={designItems}
+                  selectedIds={form.designIds}
+                  onChange={(ids) => patch("designIds", ids)}
+                  emptyMessage="No hay diseños en el catálogo principal."
+                />
+              </Section>
+            </fieldset>
+          </ActiveSectionContext.Provider>
+            {canUpdate && (
+              <div className="flex items-center gap-3">
+                <Button onClick={handleSave} disabled={saving || !dirty || blocked}>
+                  {saving && <Loader2 className="size-4 animate-spin" />}
+                  Guardar sección
+                </Button>
+                {dirty && !saving && (
+                  <span className="text-xs text-neutral-500">
+                    Cambios sin guardar
+                  </span>
+                )}
+                {savedAt && !dirty && (
+                  <span className="text-xs text-neutral-500">
+                    Guardado · {savedAt}
+                  </span>
+                )}
+              </div>
+            )}
+        </div>
+      </div>
+    </div>
+  )
+}

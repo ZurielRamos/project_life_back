@@ -11,6 +11,8 @@ export interface AuthContextValue {
   isAuthenticated: boolean
   signIn: (payload: LoginPayload) => Promise<AuthResult>
   signOut: () => void
+  /** Vuelve a consultar /auth/me y refresca el usuario en memoria. */
+  refresh: () => Promise<void>
 }
 
 /**
