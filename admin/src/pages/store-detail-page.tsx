@@ -78,6 +78,7 @@ interface FormState {
   name: string
   slug: string
   isActive: boolean
+  customDesignerEnabled: boolean
   title: string
   tagline: string
   description: string
@@ -112,6 +113,8 @@ function toForm(store: Store): FormState {
     name: store.name,
     slug: store.slug,
     isActive: store.isActive,
+    // Tiendas creadas antes de la opción: visible.
+    customDesignerEnabled: store.customDesignerEnabled ?? true,
     title: store.title ?? "",
     tagline: store.tagline ?? "",
     description: store.description ?? "",
@@ -161,7 +164,7 @@ const SECTIONS: { id: SectionId; label: string; icon: LucideIcon }[] = [
 
 /** Campos del formulario que guarda cada sección (guardado independiente). */
 const SECTION_FIELDS: Record<SectionId, (keyof FormState)[]> = {
-  general: ["name", "isActive"],
+  general: ["name", "isActive", "customDesignerEnabled"],
   brand: [
     "title",
     "tagline",
@@ -655,6 +658,28 @@ export function StoreDetailPage() {
                     className="size-4"
                   />
                   Tienda activa
+                </label>
+                <label className="flex items-start gap-2 text-sm text-neutral-700">
+                  <input
+                    type="checkbox"
+                    checked={form.customDesignerEnabled}
+                    onChange={(e) =>
+                      patch("customDesignerEnabled", e.target.checked)
+                    }
+                    className="mt-0.5 size-4"
+                    aria-describedby="custom-designer-hint"
+                  />
+                  <span>
+                    Mostrar «Crea tu propia camiseta»
+                    <span
+                      id="custom-designer-hint"
+                      className="block text-xs text-neutral-500"
+                    >
+                      Botón en la ficha de cada producto que abre el editor para
+                      que el cliente suba su propio diseño. Apágalo si la tienda
+                      solo vende diseños del catálogo.
+                    </span>
+                  </span>
                 </label>
               </Section>
       

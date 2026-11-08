@@ -84,6 +84,18 @@ export interface FooterConfig {
   copyright: string;
   showSocial: boolean;
   showContactInfo: boolean;
+  /** Distribución: marca + columnas, todo centrado, o una sola fila. */
+  layout: 'columns' | 'centered' | 'compact';
+  appearance: 'dark' | 'light' | 'brand';
+  showLogo: boolean;
+  logoSize: 'sm' | 'md' | 'lg';
+  /** Columnas de enlaces en móvil: ocultas, desplegables o visibles. */
+  mobileColumns: 'hidden' | 'accordion' | 'visible';
+  /** Botón destacado bajo la descripción (se muestra si tiene texto y destino). */
+  cta: SiteLink;
+  /** Texto corto extra en la franja inferior (p. ej. "Envíos a todo el país"). */
+  bottomNote: string;
+  showBackToTop: boolean;
 }
 
 export interface FaqItem {
@@ -112,6 +124,8 @@ export interface SitePage {
   /** Texto con formato simple (markdown reducido). */
   content: string;
   published: boolean;
+  /** Se enlaza automáticamente en la franja inferior del pie (páginas legales). */
+  inFooter: boolean;
 }
 
 export interface IntegrationsConfig {
@@ -269,7 +283,7 @@ const MAX_FOOTER_COLUMNS = 4;
 const MAX_LINKS_PER_COLUMN = 10;
 const MAX_LEGAL_LINKS = 6;
 const MAX_FAQS = 12;
-const MAX_PAGES = 10;
+const MAX_PAGES = 20;
 const MAX_HOME_SECTIONS = 12;
 const MAX_TILES = 8;
 /** Máximo de productos en una sección de destacados. */
@@ -434,6 +448,14 @@ export function defaultSiteConfig(): SiteConfig {
       copyright: '',
       showSocial: true,
       showContactInfo: true,
+      layout: 'columns',
+      appearance: 'dark',
+      showLogo: true,
+      logoSize: 'md',
+      mobileColumns: 'hidden',
+      cta: { label: '', url: '' },
+      bottomNote: '',
+      showBackToTop: false,
     },
     home: { sections: defaultHomeSections() },
     contact: {
@@ -647,6 +669,26 @@ function normFooter(v: unknown, d: FooterConfig): FooterConfig {
     copyright: str(v.copyright, 200),
     showSocial: bool(v.showSocial, d.showSocial),
     showContactInfo: bool(v.showContactInfo, d.showContactInfo),
+    layout: oneOf(
+      v.layout,
+      ['columns', 'centered', 'compact'] as const,
+      d.layout,
+    ),
+    appearance: oneOf(
+      v.appearance,
+      ['dark', 'light', 'brand'] as const,
+      d.appearance,
+    ),
+    showLogo: bool(v.showLogo, d.showLogo),
+    logoSize: oneOf(v.logoSize, ['sm', 'md', 'lg'] as const, d.logoSize),
+    mobileColumns: oneOf(
+      v.mobileColumns,
+      ['hidden', 'accordion', 'visible'] as const,
+      d.mobileColumns,
+    ),
+    cta: siteLink(v.cta) ?? { label: '', url: '' },
+    bottomNote: str(v.bottomNote, 120),
+    showBackToTop: bool(v.showBackToTop, d.showBackToTop),
   };
 }
 
@@ -696,6 +738,7 @@ function normPages(v: unknown, d: SitePage[]): SitePage[] {
           ? p.content.slice(0, MAX_PAGE_CONTENT)
           : '',
       published: bool(p.published, true),
+      inFooter: bool(p.inFooter, false),
     };
   });
 }

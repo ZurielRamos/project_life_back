@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import {
   ArrowLeft,
-  ChevronDown,
-  ChevronUp,
   Eye,
   ImagePlus,
   Loader2,
@@ -37,6 +35,7 @@ import {
 } from "@/lib/svg-template"
 import type {
   CompatibilityLink,
+  ProductColor,
   DesignArea,
   DesignPrintArea,
   DesignSeoView,
@@ -50,8 +49,78 @@ import { Button } from "@/components/ui/button"
 import { AppHeader } from "@/components/app-header"
 import { Combobox } from "@/components/ui/combobox"
 import { Label } from "@/components/ui/label"
+import { SortableList } from "@/components/ui/sortable"
 import { AreaCanvas, type Placement } from "@/components/designs/area-canvas"
 import { SvgFieldsDialog } from "@/components/designs/svg-fields-dialog"
+
+/**
+ * Lista de colores reordenable arrastrando (asa ⋮⋮, o ↑ ↓ con el teclado).
+ * Clic en la fila activa/desactiva el color.
+ */
+function ColorOrderList({
+  colors,
+  order,
+  isActive,
+  onReorder,
+  onToggle,
+}: {
+  colors: ProductColor[]
+  order: string[]
+  isActive: (colorId: string) => boolean
+  onReorder: (order: string[]) => void
+  onToggle: (colorId: string) => void
+}) {
+  const byId = new Map(colors.map((c) => [c.id, c]))
+  const items = order.filter((id) => byId.has(id))
+  return (
+    <SortableList
+      items={items}
+      onReorder={onReorder}
+      itemLabel="color"
+      getItemName={(id) => byId.get(id)?.name ?? "color"}
+      className="flex flex-col gap-1.5"
+      renderItem={(colorId, { handle }) => {
+        const color = byId.get(colorId)!
+        const active = isActive(colorId)
+        return (
+          <div
+            data-keep-selection
+            className={
+              "flex items-center gap-1 rounded-lg border py-1 pr-2 pl-1 transition-colors " +
+              (active
+                ? "border-neutral-900 bg-neutral-50"
+                : "border-neutral-200 opacity-60")
+            }
+          >
+            {handle}
+            <button
+              type="button"
+              aria-pressed={active}
+              onClick={() => onToggle(colorId)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+            >
+              <span
+                className="size-4 shrink-0 rounded-full border border-black/10"
+                style={{ backgroundColor: color.hex }}
+              />
+              <span className="min-w-0 flex-1 truncate text-neutral-700">
+                {color.name}
+              </span>
+              <span
+                className={
+                  "size-3.5 shrink-0 rounded-full border " +
+                  (active
+                    ? "border-neutral-900 bg-neutral-900"
+                    : "border-neutral-300")
+                }
+              />
+            </button>
+          </div>
+        )
+      }}
+    />
+  )
+}
 
 let keyCounter = 0
 function nextKey(): string {
@@ -331,35 +400,11 @@ export function DesignNewPage() {
     })
   }
 
-  function moveTargetColor(targetId: string, colorId: string, delta: number) {
-    setTargetState((prev) => {
-      const cur = prev[targetId]
-      if (!cur) return prev
-      const index = cur.order.indexOf(colorId)
-      const to = index + delta
-      if (index === -1 || to < 0 || to >= cur.order.length) return prev
-      const order = [...cur.order]
-      ;[order[index], order[to]] = [order[to], order[index]]
-      return { ...prev, [targetId]: { ...cur, order } }
-    })
-  }
-
   function toggleColor(colorId: string) {
     setActiveColorIds((prev) => {
       const next = new Set(prev)
       if (next.has(colorId)) next.delete(colorId)
       else next.add(colorId)
-      return next
-    })
-  }
-
-  function moveColor(colorId: string, delta: number) {
-    setColorOrder((prev) => {
-      const index = prev.indexOf(colorId)
-      const target = index + delta
-      if (index === -1 || target < 0 || target >= prev.length) return prev
-      const next = [...prev]
-      ;[next[index], next[target]] = [next[target], next[index]]
       return next
     })
   }
@@ -798,7 +843,6 @@ export function DesignNewPage() {
     (t) => t.id in targetState && targetProducts[t.id]
   )
   const colors = product?.colors ?? []
-  const colorById = new Map(colors.map((c) => [c.id, c]))
   const hasImages = placements.length > 0
 
   return (
@@ -985,70 +1029,16 @@ export function DesignNewPage() {
               ) : (
                 <>
                   <p className="mb-3 text-xs text-neutral-500">
-                    Actívalos y ordénalos. Se generará un render por cada color
+                    Actívalos y arrástralos para ordenarlos. Se generará un render por cada color
                     activo.
                   </p>
-                  <div className="flex flex-col gap-1.5">
-                    {colorOrder.map((colorId, index) => {
-                    const color = colorById.get(colorId)
-                    if (!color) return null
-                    const active = activeColorIds.has(color.id)
-                    return (
-                      <div
-                        key={color.id}
-                        className={
-                          "flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors " +
-                          (active
-                            ? "border-neutral-900 bg-neutral-50"
-                            : "border-neutral-200 opacity-60")
-                        }
-                      >
-                        <div className="flex flex-col">
-                          <button
-                            type="button"
-                            aria-label="Subir"
-                            disabled={index === 0}
-                            onClick={() => moveColor(color.id, -1)}
-                            className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
-                          >
-                            <ChevronUp className="size-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Bajar"
-                            disabled={index === colorOrder.length - 1}
-                            onClick={() => moveColor(color.id, 1)}
-                            className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
-                          >
-                            <ChevronDown className="size-3.5" />
-                          </button>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => toggleColor(color.id)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
-                        >
-                          <span
-                            className="size-4 shrink-0 rounded-full border border-black/10"
-                            style={{ backgroundColor: color.hex }}
-                          />
-                          <span className="min-w-0 flex-1 truncate text-neutral-700">
-                            {color.name}
-                          </span>
-                          <span
-                            className={
-                              "size-3.5 shrink-0 rounded-full border " +
-                              (active
-                                ? "border-neutral-900 bg-neutral-900"
-                                : "border-neutral-300")
-                            }
-                          />
-                        </button>
-                      </div>
-                      )
-                    })}
-                  </div>
+                  <ColorOrderList
+                    colors={colors}
+                    order={colorOrder}
+                    isActive={(id) => activeColorIds.has(id)}
+                    onReorder={setColorOrder}
+                    onToggle={toggleColor}
+                  />
                 </>
               )}
             </section>
@@ -1078,74 +1068,21 @@ export function DesignNewPage() {
                   ) : (
                     <>
                       <p className="mb-3 text-xs text-neutral-500">
-                        Elige los colores de este producto y ordénalos.
+                        Elige los colores de este producto y arrástralos para ordenarlos.
                       </p>
-                      <div className="flex flex-col gap-1.5">
-                        {state.order.map((colorId, index) => {
-                          const color = tProduct.colors.find(
-                            (c) => c.id === colorId
+                      <ColorOrderList
+                        colors={tProduct.colors}
+                        order={state.order}
+                        isActive={(id) => state.active.includes(id)}
+                        onReorder={(order) =>
+                          setTargetState((prev) =>
+                            prev[t.id]
+                              ? { ...prev, [t.id]: { ...prev[t.id], order } }
+                              : prev
                           )
-                          if (!color) return null
-                          const active = state.active.includes(colorId)
-                          return (
-                            <div
-                              key={colorId}
-                              className={
-                                "flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors " +
-                                (active
-                                  ? "border-neutral-900 bg-neutral-50"
-                                  : "border-neutral-200 opacity-60")
-                              }
-                            >
-                              <div className="flex flex-col">
-                                <button
-                                  type="button"
-                                  aria-label="Subir"
-                                  disabled={index === 0}
-                                  onClick={() =>
-                                    moveTargetColor(t.id, colorId, -1)
-                                  }
-                                  className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
-                                >
-                                  <ChevronUp className="size-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label="Bajar"
-                                  disabled={index === state.order.length - 1}
-                                  onClick={() =>
-                                    moveTargetColor(t.id, colorId, 1)
-                                  }
-                                  className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
-                                >
-                                  <ChevronDown className="size-3.5" />
-                                </button>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => toggleTargetColor(t.id, colorId)}
-                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
-                              >
-                                <span
-                                  className="size-4 shrink-0 rounded-full border border-black/10"
-                                  style={{ backgroundColor: color.hex }}
-                                />
-                                <span className="min-w-0 flex-1 truncate text-neutral-700">
-                                  {color.name}
-                                </span>
-                                <span
-                                  className={
-                                    "size-3.5 shrink-0 rounded-full border " +
-                                    (active
-                                      ? "border-neutral-900 bg-neutral-900"
-                                      : "border-neutral-300")
-                                  }
-                                />
-                              </button>
-                            </div>
-                          )
-                        })}
-                      </div>
+                        }
+                        onToggle={(id) => toggleTargetColor(t.id, id)}
+                      />
                     </>
                   )}
                 </section>

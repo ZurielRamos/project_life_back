@@ -205,6 +205,13 @@ export function SiteEditor({
           )}
           {section === "pages" && (
             <PagesEditor
+              store={{
+                name: store.title || store.name,
+                email: store.contactEmail ?? "",
+                phone: store.phone ?? "",
+                address: store.address ?? "",
+                url: store.domain ?? store.publicUrl ?? "",
+              }}
               value={draft.pages}
               onChange={(v) => setKey("pages", v)}
             />

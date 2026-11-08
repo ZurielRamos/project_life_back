@@ -60,6 +60,7 @@ export interface PublicStore {
   seoTitle: string | null;
   seoDescription: string | null;
   publicUrl: string | null;
+  customDesignerEnabled: boolean;
   /** Configuración del sitio (apariencia y contenido) ya resuelta. */
   site: SiteConfig;
 }
@@ -341,6 +342,7 @@ export class StoresService {
       seoTitle: store.seoTitle,
       seoDescription: store.seoDescription,
       publicUrl: this.publicUrlFor(store.slug, store.id),
+      customDesignerEnabled: store.customDesignerEnabled,
       site: resolveSiteConfig(store.siteConfig),
     };
   }
@@ -401,6 +403,9 @@ export class StoresService {
     }
     if (dto.name !== undefined) out.name = dto.name.trim();
     if (dto.isActive !== undefined) out.isActive = dto.isActive;
+    if (dto.customDesignerEnabled !== undefined) {
+      out.customDesignerEnabled = dto.customDesignerEnabled;
+    }
     if (dto.currency !== undefined) out.currency = dto.currency.toUpperCase();
     if (dto.locale !== undefined) out.locale = dto.locale.trim();
     if (dto.socialLinks !== undefined) {

@@ -42,6 +42,10 @@ export class Store {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  /** Muestra el botón «Crea tu propia camiseta» en la ficha de producto. */
+  @Column({ name: 'custom_designer_enabled', default: true })
+  customDesignerEnabled: boolean;
+
   // --- Información pública ---
 
   /** Título visible de la tienda (cabecera / pestaña). */

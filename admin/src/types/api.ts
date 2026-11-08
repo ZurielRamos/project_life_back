@@ -724,6 +724,8 @@ interface StoreBase {
   name: string
   slug: string
   isActive: boolean
+  /** Muestra «Crea tu propia camiseta» en la ficha de producto. */
+  customDesignerEnabled: boolean
   title: string | null
   tagline: string | null
   description: string | null
@@ -857,6 +859,14 @@ export interface FooterConfig {
   copyright: string
   showSocial: boolean
   showContactInfo: boolean
+  layout: "columns" | "centered" | "compact"
+  appearance: "dark" | "light" | "brand"
+  showLogo: boolean
+  logoSize: "sm" | "md" | "lg"
+  mobileColumns: "hidden" | "accordion" | "visible"
+  cta: SiteLink
+  bottomNote: string
+  showBackToTop: boolean
 }
 
 export interface FaqItem {
@@ -882,6 +892,8 @@ export interface SitePage {
   title: string
   content: string
   published: boolean
+  /** Se enlaza automáticamente en la franja inferior del pie. */
+  inFooter: boolean
 }
 
 export interface IntegrationsConfig {
