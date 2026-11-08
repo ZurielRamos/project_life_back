@@ -131,8 +131,8 @@ export class PrintAreaCompatibilityService {
       await this.linksRepository.delete({ compatiblePrintAreaId: In(ids) });
     }
     const rows = links.flatMap(({ a, b }) => [
-      this.linksRepository.create({ printAreaId: a, compatiblePrintAreaId: b }),
-      this.linksRepository.create({ printAreaId: b, compatiblePrintAreaId: a }),
+      { printAreaId: a, compatiblePrintAreaId: b },
+      { printAreaId: b, compatiblePrintAreaId: a },
     ]);
     if (rows.length > 0) {
       await this.linksRepository.upsert(rows, [
