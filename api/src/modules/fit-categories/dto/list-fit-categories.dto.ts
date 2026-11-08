@@ -1,12 +1,9 @@
-import { IsIn, IsOptional } from 'class-validator';
-import {
-  PRODUCT_FITS,
-  type ProductFit,
-} from '../../products/entities/product.entity';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ListFitCategoriesDto {
-  /** Filtra por ajuste (enum fijo). Si se omite, devuelve todas. */
+  /** Filtra por clave de ajuste. Si se omite, devuelve todas. */
   @IsOptional()
-  @IsIn(PRODUCT_FITS)
-  fit?: ProductFit;
+  @IsString()
+  @MaxLength(60)
+  fit?: string;
 }

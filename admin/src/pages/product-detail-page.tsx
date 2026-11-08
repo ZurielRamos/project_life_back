@@ -11,12 +11,13 @@ import {
 } from "lucide-react"
 
 import { ApiError } from "@/lib/api"
+import { listFits } from "@/lib/fit-categories-api"
 import {
   deleteProduct,
   getProduct,
   removeSessionMockup,
 } from "@/lib/products-api"
-import type { PhotoSession, Product, ProductFit } from "@/types/api"
+import type { Fit, PhotoSession, Product } from "@/types/api"
 import { Button } from "@/components/ui/button"
 import { AppHeader } from "@/components/app-header"
 import { AddSessionDialog } from "@/components/products/add-session-dialog"
@@ -25,14 +26,6 @@ import { EditColorsDialog } from "@/components/products/edit-colors-dialog"
 import { EditPrintAreasDialog } from "@/components/products/edit-print-areas-dialog"
 import { EditSizesDialog } from "@/components/products/edit-sizes-dialog"
 import { ImportSessionMockupsDialog } from "@/components/products/import-session-mockups-dialog"
-
-const FIT_LABELS: Record<ProductFit, string> = {
-  men: "Hombre",
-  women: "Mujer",
-  unisex: "Unisex",
-  kids: "Niños",
-  family: "Familiar",
-}
 
 function formatPrice(cents: number | null, currency: string | null): string {
   if (cents == null) return "—"
@@ -56,6 +49,7 @@ export function ProductDetailPage() {
   const navigate = useNavigate()
 
   const [product, setProduct] = useState<Product | null>(null)
+  const [fits, setFits] = useState<Fit[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
@@ -84,6 +78,14 @@ export function ProductDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Nombres visibles de los ajustes (se refresca al cerrar el diálogo de edición).
+  useEffect(() => {
+    if (editAttributesOpen) return
+    listFits()
+      .then(setFits)
+      .catch(() => setFits([]))
+  }, [editAttributesOpen])
 
   const upsertSession = useCallback((session: PhotoSession) => {
     setProduct((prev) => {
@@ -210,17 +212,29 @@ export function ProductDetailPage() {
           <Field label="Categoría" value={product.category} />
           <Field
             label="Ajuste"
-            value={product.fit ? FIT_LABELS[product.fit] : null}
+            value={
+              product.fit
+                ? (fits.find((f) => f.key === product.fit)?.name ?? product.fit)
+                : null
+            }
           />
           <Field
             label="Categoría de ajuste"
             value={product.fitCategory?.name ?? null}
           />
           <Field
-            label="Precio"
+            label="Precio costo"
+            value={
+              product.costPriceCents != null
+                ? formatPrice(product.costPriceCents, null)
+                : null
+            }
+          />
+          <Field
+            label="Precio venta"
             value={
               product.basePriceCents != null
-                ? formatPrice(product.basePriceCents, product.currency)
+                ? formatPrice(product.basePriceCents, null)
                 : null
             }
           />
@@ -250,8 +264,10 @@ export function ProductDetailPage() {
           )}
       </section>
 
+      {/* Tallas y colores, una al lado de la otra */}
+      <div className="grid items-start gap-4 lg:grid-cols-2">
       {/* Size chart */}
-      <section className="rounded-2xl border bg-white p-4">
+      <section className="min-w-0 rounded-2xl border bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-2 font-semibold text-neutral-900">
             <Ruler className="size-4 text-neutral-400" />
@@ -307,7 +323,7 @@ export function ProductDetailPage() {
       </section>
 
       {/* Colores */}
-      <section className="rounded-2xl border bg-white p-4">
+      <section className="min-w-0 rounded-2xl border bg-white p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-neutral-900">Colores</h2>
           <Button
@@ -336,6 +352,7 @@ export function ProductDetailPage() {
           </div>
         )}
       </section>
+      </div>
 
       {/* Áreas de impresión */}
       <section className="rounded-2xl border bg-white p-4">

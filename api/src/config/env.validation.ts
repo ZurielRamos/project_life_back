@@ -39,6 +39,8 @@ export interface EnvVars {
   BRAND_NAME?: string;
   SITE_URL?: string;
   STORES_BASE_DOMAIN?: string;
+  NOTIFICATIONS_SECRET?: string;
+  NOTIFICATIONS_ALLOW_PRIVATE_HOSTS?: string;
   VERCEL_API_TOKEN?: string;
   VERCEL_PROJECT_ID?: string;
   VERCEL_TEAM_ID?: string;
@@ -154,6 +156,14 @@ export function validateEnv(config: Record<string, unknown>): EnvVars {
       config.BRAND_NAME === undefined ? undefined : String(config.BRAND_NAME),
     SITE_URL:
       config.SITE_URL === undefined ? undefined : String(config.SITE_URL),
+    NOTIFICATIONS_SECRET:
+      config.NOTIFICATIONS_SECRET === undefined
+        ? undefined
+        : String(config.NOTIFICATIONS_SECRET),
+    NOTIFICATIONS_ALLOW_PRIVATE_HOSTS:
+      config.NOTIFICATIONS_ALLOW_PRIVATE_HOSTS === undefined
+        ? undefined
+        : String(config.NOTIFICATIONS_ALLOW_PRIVATE_HOSTS),
     STORES_BASE_DOMAIN:
       config.STORES_BASE_DOMAIN === undefined
         ? undefined

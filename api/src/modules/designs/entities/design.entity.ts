@@ -55,6 +55,23 @@ export class Design {
   @Column({ name: 'product_id' })
   productId: string;
 
+  /**
+   * Área de impresión principal del diseño (id de PrintArea del producto).
+   * Sus renders van primero: definen la portada y las imágenes de contexto
+   * del SEO. Sin FK a propósito: las áreas del producto se reemplazan en
+   * bloque. Null en diseños antiguos o productos sin áreas ancladas.
+   */
+  @Column({ name: 'main_print_area_id', type: 'uuid', nullable: true })
+  mainPrintAreaId: string | null;
+
+  /**
+   * true si el diseño tiene copyright (arte de terceros). Permite ocultar
+   * de la tienda todos los diseños con copyright cuando sea necesario (ver
+   * HIDE_COPYRIGHTED_DESIGNS). Los diseños previos quedan en false.
+   */
+  @Column({ name: 'has_copyright', type: 'boolean', default: false })
+  hasCopyright: boolean;
+
   /** Colocaciones de imagen, una (o varias) por área de impresión. */
   @OneToMany(() => DesignPlacement, (p) => p.design, {
     cascade: true,

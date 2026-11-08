@@ -56,6 +56,8 @@ export enum Permissions {
   StoresRead = 'stores:read',
   StoresUpdate = 'stores:update',
   StoresDelete = 'stores:delete',
+  /** Ver y editar las credenciales de notificaciones (SMTP, WhatsApp) de una tienda. */
+  StoresNotifications = 'stores:notifications',
 
   // Clientes / leads del storefront
   CustomersRead = 'customers:read',

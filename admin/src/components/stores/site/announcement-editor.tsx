@@ -57,11 +57,15 @@ export function AnnouncementEditor({ value, onChange }: Props) {
             label="Color de fondo"
             value={value.backgroundColor}
             onChange={(backgroundColor) => set({ backgroundColor })}
+            contrastWith={value.textColor}
+            contrastLabel="el color del texto"
           />
           <ColorField
             label="Color del texto"
             value={value.textColor}
             onChange={(textColor) => set({ textColor })}
+            contrastWith={value.backgroundColor}
+            contrastLabel="el fondo"
           />
         </FieldRow>
       </Card>

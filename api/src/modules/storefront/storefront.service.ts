@@ -102,6 +102,14 @@ export class StorefrontService {
   ) {}
 
   /**
+   * true si hay que ocultar los diseños con copyright de la tienda pública
+   * (HIDE_COPYRIGHTED_DESIGNS=true). Se lee en cada petición.
+   */
+  private hideCopyrighted(): boolean {
+    return process.env.HIDE_COPYRIGHTED_DESIGNS === 'true';
+  }
+
+  /**
    * Ids de diseños visibles para la tienda indicada (por slug). Devuelve
    * null si no se pidió tienda (catálogo completo). Lanza 404 si la tienda
    * no existe o está inactiva.
@@ -161,10 +169,11 @@ export class StorefrontService {
          JOIN designs d ON d.id = de.design_id
         WHERE de.embedding IS NOT NULL
           AND d.status = 'ready'
+          AND ($4::boolean = false OR d.has_copyright = false)
           AND ($3::uuid[] IS NULL OR d.id = ANY($3::uuid[]))
         ORDER BY de.embedding <=> $1::vector
         LIMIT $2`,
-      [literal, limit + offset + 50, scope],
+      [literal, limit + offset + 50, scope, this.hideCopyrighted()],
     );
 
     const orderedIds = rows.map((r) => r.design_id);
@@ -175,7 +184,11 @@ export class StorefrontService {
 
     // Cargamos los diseños y preservamos el orden de similitud.
     const designs = await this.designsRepository.find({
-      where: { id: In(orderedIds), status: 'ready' },
+      where: {
+        id: In(orderedIds),
+        status: 'ready',
+        ...(this.hideCopyrighted() ? { hasCopyright: false } : {}),
+      },
       relations: { product: true, seo: true, renders: true },
     });
     const byId = new Map(designs.map((d) => [d.id, d]));
@@ -222,6 +235,9 @@ export class StorefrontService {
       )
       .where('design.status = :ready', { ready: 'ready' });
 
+    if (this.hideCopyrighted()) {
+      qb.andWhere('design.has_copyright = false');
+    }
     if (scope) {
       qb.andWhere('design.id IN (:...scope)', { scope });
     }
@@ -276,6 +292,9 @@ export class StorefrontService {
       .where('seo.slug = :slug', { slug })
       .andWhere('design.status = :ready', { ready: 'ready' });
 
+    if (this.hideCopyrighted()) {
+      qb.andWhere('design.has_copyright = false');
+    }
     if (scope) {
       // Lista vacía => ningún diseño visible en esta tienda.
       qb.andWhere('design.id IN (:...scope)', {

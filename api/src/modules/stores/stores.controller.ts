@@ -14,6 +14,7 @@ import {
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions.enum';
 import { AddDomainDto } from './dto/add-domain.dto';
+import { SetPrimaryDomainDto } from './dto/set-primary-domain.dto';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
 import { UploadStoreAssetDto } from './dto/upload-store-asset.dto';
@@ -83,6 +84,16 @@ export class StoresController {
   @RequirePermissions(Permissions.StoresUpdate)
   addDomain(@Param('id', ParseUUIDPipe) id: string, @Body() dto: AddDomainDto) {
     return this.domainsService.add(id, dto.hostname);
+  }
+
+  /** Define el dominio favorito (domainId null = subdominio de la plataforma). */
+  @Patch(':id/domains/primary')
+  @RequirePermissions(Permissions.StoresUpdate)
+  setPrimaryDomain(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetPrimaryDomainDto,
+  ) {
+    return this.domainsService.setPrimary(id, dto.domainId ?? null);
   }
 
   @Post(':id/domains/:domainId/verify')

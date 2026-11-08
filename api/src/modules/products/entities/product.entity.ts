@@ -14,16 +14,16 @@ import { PrintArea } from './print-area.entity';
 import { ProductColor } from './product-color.entity';
 import { ProductSize } from './product-size.entity';
 
-/** Ajuste/género del producto (enum fijo). */
-export type ProductFit = 'men' | 'women' | 'unisex' | 'kids' | 'family';
+/** Clave (slug) de un ajuste administrable (tabla `fits`). */
+export type ProductFit = string;
 
-/** Valores válidos del ajuste, como lista (útil para validación/seed). */
-export const PRODUCT_FITS: ProductFit[] = [
-  'men',
-  'women',
-  'unisex',
-  'kids',
-  'family',
+/** Ajustes iniciales que se siembran en la tabla `fits` la primera vez. */
+export const DEFAULT_FITS: { key: string; name: string }[] = [
+  { key: 'men', name: 'Hombre' },
+  { key: 'women', name: 'Mujer' },
+  { key: 'unisex', name: 'Unisex' },
+  { key: 'kids', name: 'Niños' },
+  { key: 'family', name: 'Familiar' },
 ];
 
 /** Unidad de medida del size chart. */
@@ -85,9 +85,13 @@ export class Product {
   @Column({ name: 'fit_category_id', type: 'uuid', nullable: true })
   fitCategoryId: string | null;
 
-  /** Precio base en centavos (evita problemas de coma flotante). */
+  /** Precio de venta en centavos (evita problemas de coma flotante). */
   @Column({ name: 'base_price_cents', type: 'int', nullable: true })
   basePriceCents: number | null;
+
+  /** Precio de costo en centavos (uso interno, no se expone en la tienda). */
+  @Column({ name: 'cost_price_cents', type: 'int', nullable: true })
+  costPriceCents: number | null;
 
   /** Código ISO de moneda, p.ej. "USD", "COP". */
   @Column({ type: 'varchar', length: 3, nullable: true })

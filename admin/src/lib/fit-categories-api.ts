@@ -2,6 +2,7 @@
 import { apiFetch } from "@/lib/api"
 import type {
   CreateFitCategoryPayload,
+  Fit,
   FitCategory,
   ProductFit,
 } from "@/types/api"
@@ -20,6 +21,24 @@ export function createFitCategory(
 }
 
 /** Elimina una categoría de ajuste por id. */
+/** Lista los ajustes administrables. */
+export function listFits(): Promise<Fit[]> {
+  return apiFetch<Fit[]>("/fit-categories/fits")
+}
+
+/** Crea un ajuste nuevo (la clave se genera en el servidor). */
+export function createFit(name: string): Promise<Fit> {
+  return apiFetch<Fit>("/fit-categories/fits", {
+    method: "POST",
+    body: { name },
+  })
+}
+
+/** Elimina un ajuste (falla si hay productos que lo usan). */
+export function deleteFit(id: string): Promise<void> {
+  return apiFetch<void>(`/fit-categories/fits/${id}`, { method: "DELETE" })
+}
+
 export function deleteFitCategory(id: string): Promise<void> {
   return apiFetch<void>(`/fit-categories/${id}`, { method: "DELETE" })
 }

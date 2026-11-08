@@ -9,6 +9,7 @@ import {
   Loader2,
   Pencil,
   Sparkles,
+  Star,
   Trash2,
 } from "lucide-react"
 
@@ -32,8 +33,10 @@ import {
 } from "@/lib/svg-template"
 import type {
   DesignArea,
+  DesignPrintArea,
   DesignSeoView,
   Font,
+  PhotoSession,
   Product,
   ProductSummary,
   RenderSvgField,
@@ -56,29 +59,55 @@ function nextKey(): string {
  * mockup de la primera sesión del producto. Cada área = un smart object,
  * con su nombre y su tamaño en px de la plantilla (B1).
  */
-function deriveDesignAreas(product: Product | null): DesignArea[] {
+function deriveDesignAreas(product: Product | null): DesignPrintArea[] {
   if (!product) return []
-  const sessions = [...(product.photoSessions ?? [])].sort(
-    (a, b) =>
-      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  )
-  const firstSession = sessions[0]
-  const mockups = [...(firstSession?.mockups ?? [])].sort(
+  const sessions = [...(product.photoSessions ?? [])]
+    .filter((s) => (s.mockups ?? []).length > 0)
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    )
+
+  const objectsOf = (session: PhotoSession): DesignArea[] => {
+    const firstMockup = [...(session.mockups ?? [])].sort(
+      (a, b) => a.position - b.position
+    )[0]
+    return (firstMockup?.smartObjects ?? [])
+      .filter((so) => (so.name ?? "").toLowerCase().startsWith("dise"))
+      .map((so) => ({
+        smartObjectUuid: so.uuid,
+        // El nombre del smart object suele venir como "diseo"; se muestra
+        // como "Diseño" en la UI (reemplazo global, case-insensitive).
+        name: (so.name ?? "Diseño").replace(/diseo/gi, "Diseño"),
+        widthPx: so.size?.width ?? 100,
+        heightPx: so.size?.height ?? 100,
+      }))
+  }
+
+  // Una entrada por área de impresión: su primera sesión anclada con mockups.
+  const areas = [...(product.printAreas ?? [])].sort(
     (a, b) => a.position - b.position
   )
-  const firstMockup = mockups[0]
-  if (!firstMockup) return []
+  const groups: DesignPrintArea[] = []
+  for (const area of areas) {
+    const session = sessions.find((s) => s.printAreaId === area.id)
+    if (!session) continue
+    const objects = objectsOf(session)
+    if (objects.length > 0) {
+      groups.push({ id: area.id, name: area.name, objects })
+    }
+  }
+  if (groups.length > 0) return groups
 
-  return (firstMockup.smartObjects ?? [])
-    .filter((so) => (so.name ?? "").toLowerCase().startsWith("dise"))
-    .map((so) => ({
-      smartObjectUuid: so.uuid,
-      // El nombre del smart object suele venir como "diseo"; se muestra como
-      // "Diseño" en la UI (reemplazo global, case-insensitive).
-      name: (so.name ?? "Diseño").replace(/diseo/gi, "Diseño"),
-      widthPx: so.size?.width ?? 100,
-      heightPx: so.size?.height ?? 100,
-    }))
+  // Productos antiguos sin sesiones ancladas: una sola área con la primera
+  // sesión (igual que el backend).
+  if (sessions[0]) {
+    const objects = objectsOf(sessions[0])
+    if (objects.length > 0) {
+      return [{ id: "legacy", name: "Área de diseño", objects }]
+    }
+  }
+  return []
 }
 
 /**
@@ -97,6 +126,10 @@ export function DesignNewPage() {
 
   const [placements, setPlacements] = useState<Placement[]>([])
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  // Área de impresión principal elegida (id de PrintArea).
+  const [mainAreaId, setMainAreaId] = useState<string | null>(null)
+  // Copyright del diseño: null = aún sin elegir (es obligatorio).
+  const [hasCopyright, setHasCopyright] = useState<boolean | null>(null)
   const [colorOrder, setColorOrder] = useState<string[]>([])
   const [activeColorIds, setActiveColorIds] = useState<Set<string>>(new Set())
 
@@ -171,6 +204,7 @@ export function DesignNewPage() {
       setActiveColorIds(new Set(colorIds))
       setPlacements([])
       setSelectedKey(null)
+      setMainAreaId(null)
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -516,34 +550,37 @@ export function DesignNewPage() {
    * Genera una vista previa efímera del área: render del primer color activo
    * + SEO. No crea ni guarda nada en la BD.
    */
-  async function handlePreview(area: DesignArea) {
+  async function handlePreview(group: DesignPrintArea) {
     if (!productId) return
-    const areaPlacements = placements.filter(
-      (p) => p.printAreaId === area.smartObjectUuid
-    )
-    if (areaPlacements.length === 0) {
+    const uuids = new Set(group.objects.map((o) => o.smartObjectUuid))
+    const groupPlacements = placements.filter((p) => uuids.has(p.printAreaId))
+    if (groupPlacements.length === 0) {
       setError("Carga una imagen en esta área antes de previsualizar.")
       return
     }
-    setPreviewingArea(area.smartObjectUuid)
+    setPreviewingArea(group.id)
     setError(null)
     try {
       const result = await previewDesign({
         productId,
-        printAreaId: area.smartObjectUuid,
-        placements: areaPlacements.map((p, index) => ({
-          printAreaId: p.printAreaId,
-          imageUrl: p.imageUrl,
-          imagePublicId: p.imagePublicId,
-          xMm: p.xMm,
-          yMm: p.yMm,
-          widthMm: p.widthMm,
-          heightMm: p.heightMm,
-          rotation: p.rotation,
-          authorAreaWidthPx: area.widthPx,
-          authorAreaHeightPx: area.heightPx,
-          zIndex: index,
-        })),
+        // Cualquier smart object del área identifica el área en el backend.
+        printAreaId: groupPlacements[0].printAreaId,
+        placements: groupPlacements.map((p, index) => {
+          const object = areaByUuid.get(p.printAreaId)
+          return {
+            printAreaId: p.printAreaId,
+            imageUrl: p.imageUrl,
+            imagePublicId: p.imagePublicId,
+            xMm: p.xMm,
+            yMm: p.yMm,
+            widthMm: p.widthMm,
+            heightMm: p.heightMm,
+            rotation: p.rotation,
+            authorAreaWidthPx: object?.widthPx,
+            authorAreaHeightPx: object?.heightPx,
+            zIndex: index,
+          }
+        }),
         colorId: firstActiveColorId ?? undefined,
       })
       setPreviewUrl(result.imageUrl)
@@ -568,11 +605,39 @@ export function DesignNewPage() {
       setError("Carga al menos una imagen antes de generar.")
       return
     }
+    if (hasCopyright === null) {
+      setError("Indica si el diseño tiene copyright.")
+      return
+    }
+    // Con áreas de impresión ancladas hay que elegir la principal (si solo
+    // hay una, es esa). En productos antiguos ("legacy") no aplica.
+    const anchoredAreas = printAreas.filter((pa) => pa.id !== "legacy")
+    const effectiveMainId =
+      anchoredAreas.length === 1 ? anchoredAreas[0].id : mainAreaId
+    if (anchoredAreas.length > 0) {
+      if (!effectiveMainId) {
+        setError("Selecciona el área de impresión principal del diseño.")
+        return
+      }
+      const mainUuids = new Set(
+        anchoredAreas
+          .find((pa) => pa.id === effectiveMainId)
+          ?.objects.map((o) => o.smartObjectUuid)
+      )
+      if (!placements.some((p) => mainUuids.has(p.printAreaId))) {
+        setError(
+          "El área principal debe tener al menos una imagen. Carga un archivo en ella o elige otra."
+        )
+        return
+      }
+    }
     setGenerating(true)
     setError(null)
     try {
       await generateDesign({
         productId,
+        hasCopyright,
+        mainPrintAreaId: anchoredAreas.length > 0 ? effectiveMainId! : undefined,
         placements: placements.map((p, index) => {
           const area = areaByUuid.get(p.printAreaId)
           return {
@@ -608,10 +673,14 @@ export function DesignNewPage() {
 
   // Áreas derivadas: un área por cada smart object "dise" del primer mockup
   // de la primera sesión del producto. El lienzo trabaja en px (B1).
-  const areas = deriveDesignAreas(product)
-  // Lookup de tamaño del área por uuid de smart object, para adjuntar el
-  // tamaño de autoría a cada placement al generar/previsualizar.
-  const areaByUuid = new Map(areas.map((a) => [a.smartObjectUuid, a]))
+  const printAreas = deriveDesignAreas(product)
+  // Lookup del objeto inteligente por uuid, para adjuntar el tamaño de
+  // autoría a cada placement al generar/previsualizar.
+  const areaByUuid = new Map(
+    printAreas.flatMap((pa) =>
+      pa.objects.map((o) => [o.smartObjectUuid, o] as const)
+    )
+  )
   const colors = product?.colors ?? []
   const colorById = new Map(colors.map((c) => [c.id, c]))
   const hasImages = placements.length > 0
@@ -689,6 +758,38 @@ export function DesignNewPage() {
           }
           emptyText="No se encontraron productos."
         />
+      </div>
+
+      {/* Copyright: obligatorio, permite ocultar estos diseños de la tienda. */}
+      <div className="grid max-w-md gap-2">
+        <Label id="design-copyright-label">¿El diseño tiene copyright?</Label>
+        <div
+          role="radiogroup"
+          aria-labelledby="design-copyright-label"
+          className="flex gap-2"
+        >
+          {[
+            { value: false, label: "No tiene copyright" },
+            { value: true, label: "Sí tiene copyright" },
+          ].map((option) => (
+            <Button
+              key={String(option.value)}
+              data-keep-selection
+              type="button"
+              role="radio"
+              aria-checked={hasCopyright === option.value}
+              variant={hasCopyright === option.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setHasCopyright(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-neutral-500">
+          Permite ocultar de la tienda todos los productos con copyright si
+          hiciera falta.
+        </p>
       </div>
 
       {loadingProduct ? (
@@ -786,14 +887,77 @@ export function DesignNewPage() {
 
           {/* Columna derecha: áreas + canvas de edición */}
           <div className="flex min-w-0 flex-1 flex-col gap-4">
-            {areas.length === 0 ? (
+            {printAreas.length === 0 ? (
               <section className="rounded-2xl border border-dashed p-6 text-center text-sm text-neutral-500">
-                La primera sesión del producto no tiene mockups con capas de
-                diseño ("dise"). Importa un mockup con smart objects de diseño
-                para poder diseñar.
+                Ninguna área de impresión del producto tiene una sesión con
+                mockups que incluyan capas de diseño ("dise"). Ancla una sesión
+                a cada área e importa mockups con smart objects de diseño para
+                poder diseñar.
               </section>
             ) : (
-              areas.map((area) => {
+              printAreas.map((printArea) => {
+                const groupUuids = new Set(
+                  printArea.objects.map((o) => o.smartObjectUuid)
+                )
+                const isMain =
+                  printAreas.length === 1 || mainAreaId === printArea.id
+                const groupHasImages = placements.some((p) =>
+                  groupUuids.has(p.printAreaId)
+                )
+                return (
+                  <section
+                    key={printArea.id}
+                    className="flex flex-col gap-3 rounded-2xl border bg-neutral-50 p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h2 className="text-base font-semibold text-neutral-900">
+                          {printArea.name}
+                        </h2>
+                        <p className="text-xs text-neutral-400">
+                          {printArea.objects.length}{" "}
+                          {printArea.objects.length === 1
+                            ? "objeto de diseño"
+                            : "objetos de diseño"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                      {printArea.id !== "legacy" && (
+                        <Button
+                          data-keep-selection
+                          variant={isMain ? "default" : "outline"}
+                          size="sm"
+                          aria-pressed={isMain}
+                          disabled={printAreas.length === 1}
+                          onClick={() => setMainAreaId(printArea.id)}
+                        >
+                          <Star
+                            className={
+                              "size-4 " + (isMain ? "fill-current" : "")
+                            }
+                          />
+                          {isMain ? "Área principal" : "Marcar como principal"}
+                        </Button>
+                      )}
+                      <Button
+                        data-keep-selection
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handlePreview(printArea)}
+                        disabled={
+                          previewingArea === printArea.id || !groupHasImages
+                        }
+                      >
+                        {previewingArea === printArea.id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
+                        Preview
+                      </Button>
+                      </div>
+                    </div>
+                    {printArea.objects.map((area) => {
                 const areaPlacements = placements.filter(
                   (p) => p.printAreaId === area.smartObjectUuid
                 )
@@ -837,23 +1001,6 @@ export function DesignNewPage() {
                             Editar diseño
                           </Button>
                         )}
-                        <Button
-                          data-keep-selection
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePreview(area)}
-                          disabled={
-                            previewingArea === area.smartObjectUuid ||
-                            areaPlacements.length === 0
-                          }
-                        >
-                          {previewingArea === area.smartObjectUuid ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Eye className="size-4" />
-                          )}
-                          Preview
-                        </Button>
                       </div>
                     </div>
                     <div data-keep-selection>
@@ -868,6 +1015,9 @@ export function DesignNewPage() {
                         }
                       />
                     </div>
+                  </section>
+                )
+                    })}
                   </section>
                 )
               })

@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import {
+  sendWhatsappAuthTemplate,
+  WhatsappDeliveryError,
+  type WhatsappAuthConfig,
+} from '../../common/whatsapp-auth-template';
 
 /**
  * Propósito del OTP. Cada propósito vive en su propio espacio de claves en
@@ -81,8 +86,13 @@ export class WhatsappOtpService implements OnModuleDestroy {
     purpose: OtpPurpose,
     phone: string,
     payload: string | null = null,
+    credentials: WhatsappAuthConfig | null = null,
+    scope = 'global',
   ): Promise<void> {
-    const cooldownKey = this.cooldownKey(purpose, phone);
+    // El código y el cooldown son por (tienda, número): el mismo teléfono en
+    // dos tiendas tiene códigos independientes.
+    const scoped = `${scope}:${phone}`;
+    const cooldownKey = this.cooldownKey(purpose, scoped);
     const onCooldown = await this.redis.get(cooldownKey);
     if (onCooldown) {
       throw new BadRequestException(
@@ -93,14 +103,14 @@ export class WhatsappOtpService implements OnModuleDestroy {
     const code = this.generateCode();
     const stored: StoredOtp = { code, attempts: 0, payload };
     await this.redis.set(
-      this.otpKey(purpose, phone),
+      this.otpKey(purpose, scoped),
       JSON.stringify(stored),
       'EX',
       OTP_TTL_SECONDS,
     );
     await this.redis.set(cooldownKey, '1', 'EX', RESEND_COOLDOWN_SECONDS);
 
-    await this.deliver(phone, code);
+    await this.deliver(phone, code, credentials);
   }
 
   /**
@@ -111,8 +121,9 @@ export class WhatsappOtpService implements OnModuleDestroy {
     purpose: OtpPurpose,
     phone: string,
     code: string,
+    scope = 'global',
   ): Promise<OtpVerifyResult> {
-    const key = this.otpKey(purpose, phone);
+    const key = this.otpKey(purpose, `${scope}:${phone}`);
     const raw = await this.redis.get(key);
     if (!raw) {
       return { ok: false, reason: 'not_found' };
@@ -149,19 +160,17 @@ export class WhatsappOtpService implements OnModuleDestroy {
     return { ok: true, payload: stored.payload };
   }
 
-  /** Envía el código por WhatsApp usando la plantilla de autenticación. */
-  private async deliver(phone: string, code: string): Promise<void> {
-    const baseUrl =
-      this.config.get<string>('WHATSAPP_API_URL') ??
-      'https://smarter.strategee.us/api/v1/strategeee/whatsapp/auth-template';
-    const apiToken = this.config.get<string>('WHATSAPP_API_TOKEN');
-    const inboxId = this.config.get<string>('WHATSAPP_INBOX_ID');
-    const templateName =
-      this.config.get<string>('WHATSAPP_TEMPLATE_NAME') ?? 'autenticacion';
-    const languageCode =
-      this.config.get<string>('WHATSAPP_LANGUAGE_CODE') ?? 'es';
-
-    if (!apiToken || !inboxId) {
+  /**
+   * Envía el código por WhatsApp con la plantilla de autenticación. Usa las
+   * credenciales de la tienda si se pasan; si no, las globales del entorno.
+   */
+  private async deliver(
+    phone: string,
+    code: string,
+    credentials: WhatsappAuthConfig | null,
+  ): Promise<void> {
+    const cfg = credentials ?? this.envCredentials();
+    if (!cfg) {
       // En desarrollo, sin credenciales configuradas, loguea el código en
       // lugar de fallar para no bloquear el flujo local.
       this.logger.warn(
@@ -171,45 +180,45 @@ export class WhatsappOtpService implements OnModuleDestroy {
       return;
     }
 
-    const to = this.toWhatsappNumber(phone);
-    const body = {
-      inboxId,
-      to,
-      templateName,
-      languageCode,
-      code,
-    };
-
-    let res: Response;
     try {
-      res = await fetch(baseUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-token': apiToken,
-        },
-        body: JSON.stringify(body),
-      });
+      await sendWhatsappAuthTemplate(cfg, this.toWhatsappNumber(phone), code);
     } catch (err) {
+      if (err instanceof WhatsappDeliveryError && err.status !== undefined) {
+        this.logger.error(
+          `WhatsApp API respondió ${err.status}: ${err.detail ?? ''}`,
+        );
+        throw new BadRequestException(
+          'No se pudo enviar el código por WhatsApp. Verifica el número e intenta de nuevo.',
+        );
+      }
       this.logger.error(
         `Fallo de red enviando OTP por WhatsApp: ${
-          err instanceof Error ? err.message : String(err)
+          err instanceof Error
+            ? ((err as WhatsappDeliveryError).detail ?? err.message)
+            : String(err)
         }`,
       );
       throw new BadRequestException(
         'No se pudo enviar el código por WhatsApp. Intenta de nuevo.',
       );
     }
+  }
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      this.logger.error(
-        `WhatsApp API respondió ${res.status}: ${text.slice(0, 500)}`,
-      );
-      throw new BadRequestException(
-        'No se pudo enviar el código por WhatsApp. Verifica el número e intenta de nuevo.',
-      );
-    }
+  /** Credenciales globales (variables de entorno), o null si faltan. */
+  private envCredentials(): WhatsappAuthConfig | null {
+    const apiToken = this.config.get<string>('WHATSAPP_API_TOKEN');
+    const inboxId = this.config.get<string>('WHATSAPP_INBOX_ID');
+    if (!apiToken || !inboxId) return null;
+    return {
+      endpoint:
+        this.config.get<string>('WHATSAPP_API_URL') ??
+        'https://smarter.strategee.us/api/v1/strategeee/whatsapp/auth-template',
+      apiToken,
+      inboxId,
+      templateName:
+        this.config.get<string>('WHATSAPP_TEMPLATE_NAME') ?? 'autenticacion',
+      languageCode: this.config.get<string>('WHATSAPP_LANGUAGE_CODE') ?? 'es',
+    };
   }
 
   /**

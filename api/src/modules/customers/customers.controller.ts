@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   HttpStatus,
   Patch,
@@ -42,8 +43,12 @@ export class CustomersController {
    */
   @HttpCode(HttpStatus.OK)
   @Post('auth/request-otp')
-  requestOtp(@Body() dto: RequestOtpDto): Promise<OtpRequestedResult> {
-    return this.customerAuthService.requestOtp(dto);
+  requestOtp(
+    @Body() dto: RequestOtpDto,
+    @Headers('origin') origin?: string,
+    @Headers('x-store-slug') storeSlug?: string,
+  ): Promise<OtpRequestedResult> {
+    return this.customerAuthService.requestOtp(dto, { origin, storeSlug });
   }
 
   /**
@@ -53,8 +58,12 @@ export class CustomersController {
    */
   @HttpCode(HttpStatus.OK)
   @Post('auth/verify-otp')
-  verifyOtp(@Body() dto: VerifyOtpDto): Promise<VerifyOtpResult> {
-    return this.customerAuthService.verifyOtp(dto);
+  verifyOtp(
+    @Body() dto: VerifyOtpDto,
+    @Headers('origin') origin?: string,
+    @Headers('x-store-slug') storeSlug?: string,
+  ): Promise<VerifyOtpResult> {
+    return this.customerAuthService.verifyOtp(dto, { origin, storeSlug });
   }
 
   /**

@@ -51,6 +51,10 @@ export class StoreDomain {
   @Column({ type: 'varchar', default: 'subdomain' })
   kind: 'apex' | 'subdomain';
 
+  /** Dominio favorito de la tienda (URL canónica). Solo uno por tienda. */
+  @Column({ name: 'is_primary', default: false })
+  isPrimary: boolean;
+
   @Index()
   @Column({ type: 'varchar', default: 'pending' })
   status: StoreDomainStatus;

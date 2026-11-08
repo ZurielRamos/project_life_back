@@ -30,8 +30,44 @@ export interface AnnouncementConfig {
   textColor: string;
 }
 
+/**
+ * Disposición del encabezado:
+ * - logo-center: menú a la izquierda, logo al centro, iconos a la derecha.
+ * - logo-left: logo a la izquierda con el menú a su lado, iconos a la derecha.
+ * - logo-left-menu-center: logo a la izquierda, menú centrado, iconos a la derecha.
+ * - logo-right: menú a la izquierda, iconos y logo a la derecha.
+ * - stacked: logo centrado arriba y el menú centrado en una segunda fila.
+ */
+export type HeaderLayout =
+  | 'logo-center'
+  | 'logo-left'
+  | 'logo-left-menu-center'
+  | 'logo-right'
+  | 'stacked';
+
+/**
+ * Fondo del encabezado:
+ * - transparent: transparente sobre la portada y oscuro translúcido al bajar;
+ *   en las demás páginas, claro.
+ * - dark: oscuro en todas las páginas.
+ * - light: claro en todas las páginas.
+ */
+export type HeaderAppearance = 'transparent' | 'dark' | 'light';
+
 export interface HeaderConfig {
   navItems: SiteLink[];
+  layout: HeaderLayout;
+  appearance: HeaderAppearance;
+  logoSize: 'sm' | 'md' | 'lg';
+  /** Cómo se escriben los enlaces del menú. */
+  menuCase: 'as-typed' | 'uppercase';
+  /** Fijo arriba al hacer scroll (true) o se desplaza con la página (false). */
+  sticky: boolean;
+  showSearch: boolean;
+  showFavorites: boolean;
+  showAccount: boolean;
+  /** Botón de menú (hamburguesa) en móvil con los enlaces del menú. */
+  mobileMenu: boolean;
 }
 
 export interface FooterColumn {
@@ -311,6 +347,16 @@ export function defaultSiteConfig(): SiteConfig {
       textColor: '#ffffff',
     },
     header: {
+      layout: 'logo-center',
+      appearance: 'transparent',
+      logoSize: 'md',
+      menuCase: 'as-typed',
+      sticky: true,
+      showSearch: true,
+      // La página /favoritos aún no existe: el icono queda apagado por defecto.
+      showFavorites: false,
+      showAccount: true,
+      mobileMenu: true,
       navItems: [
         { label: 'MUJER', url: '/tienda?fit=women' },
         { label: 'FAMILIAR', url: '/tienda?fit=family' },
@@ -490,12 +536,33 @@ function normAnnouncement(
   };
 }
 
+const HEADER_LAYOUTS: readonly HeaderLayout[] = [
+  'logo-center',
+  'logo-left',
+  'logo-left-menu-center',
+  'logo-right',
+  'stacked',
+];
+
 function normHeader(v: unknown, d: HeaderConfig): HeaderConfig {
   if (!isObj(v)) return d;
   return {
     navItems: Array.isArray(v.navItems)
       ? list(v.navItems, MAX_NAV_ITEMS, siteLink)
       : d.navItems,
+    layout: oneOf(v.layout, HEADER_LAYOUTS, d.layout),
+    appearance: oneOf(
+      v.appearance,
+      ['transparent', 'dark', 'light'] as const,
+      d.appearance,
+    ),
+    logoSize: oneOf(v.logoSize, ['sm', 'md', 'lg'] as const, d.logoSize),
+    menuCase: oneOf(v.menuCase, ['as-typed', 'uppercase'] as const, d.menuCase),
+    sticky: bool(v.sticky, d.sticky),
+    showSearch: bool(v.showSearch, d.showSearch),
+    showFavorites: bool(v.showFavorites, d.showFavorites),
+    showAccount: bool(v.showAccount, d.showAccount),
+    mobileMenu: bool(v.mobileMenu, d.mobileMenu),
   };
 }
 

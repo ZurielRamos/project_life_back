@@ -48,6 +48,8 @@ export class StoreDomainsService implements OnModuleInit, OnModuleDestroy {
 
   /** hostname → storeId de dominios activos. Lectura sin ir a la BD. */
   private activeHosts = new Map<string, string>();
+  /** storeId → hostname del dominio favorito activo (si lo hay). */
+  private primaryHosts = new Map<string, string>();
   private timer?: NodeJS.Timeout;
 
   constructor(
@@ -99,12 +101,46 @@ export class StoreDomainsService implements OnModuleInit, OnModuleDestroy {
     return this.activeHosts.get(hostname.toLowerCase());
   }
 
+  /** Hostname del dominio favorito activo de la tienda, o undefined. */
+  primaryHostFor(storeId: string): string | undefined {
+    return this.primaryHosts.get(storeId);
+  }
+
   async refreshCache(): Promise<void> {
     const rows = await this.domains.find({
       where: { status: 'active' },
-      select: { hostname: true, storeId: true },
+      select: { hostname: true, storeId: true, isPrimary: true },
     });
     this.activeHosts = new Map(rows.map((r) => [r.hostname, r.storeId]));
+    this.primaryHosts = new Map(
+      rows.filter((r) => r.isPrimary).map((r) => [r.storeId, r.hostname]),
+    );
+  }
+
+  /**
+   * Marca el dominio favorito de la tienda. `domainId = null` devuelve el
+   * favorito al subdominio de la plataforma. Solo dominios activos.
+   */
+  async setPrimary(
+    storeId: string,
+    domainId: string | null,
+  ): Promise<StoreDomain[]> {
+    await this.assertStore(storeId);
+    if (domainId) {
+      const target = await this.domains.findOne({
+        where: { id: domainId, storeId },
+      });
+      if (!target) throw new NotFoundException('Dominio no encontrado');
+      if (target.status !== 'active') {
+        throw new BadRequestException(
+          'Solo un dominio activo puede ser el favorito',
+        );
+      }
+    }
+    await this.domains.update({ storeId }, { isPrimary: false });
+    if (domainId) await this.domains.update({ id: domainId }, { isPrimary: true });
+    await this.refreshCache();
+    return this.list(storeId);
   }
 
   // --- API de administración ---
@@ -159,6 +195,23 @@ export class StoreDomainsService implements OnModuleInit, OnModuleDestroy {
     await this.vercel.removeDomain(domain.hostname);
     await this.domains.delete(domain.id);
     this.activeHosts.delete(domain.hostname);
+    if (this.primaryHosts.get(domain.storeId) === domain.hostname) {
+      this.primaryHosts.delete(domain.storeId);
+    }
+  }
+
+  /**
+   * Quita de Vercel todos los dominios de una tienda (antes de borrarla).
+   * Si alguno falla, lanza error y la tienda no se elimina, para no dejar
+   * dominios huérfanos ocupando cupo en el proyecto.
+   */
+  async removeAllForStore(storeId: string): Promise<void> {
+    const rows = await this.domains.find({ where: { storeId } });
+    for (const d of rows) {
+      await this.vercel.removeDomain(d.hostname);
+      this.activeHosts.delete(d.hostname);
+    }
+    this.primaryHosts.delete(storeId);
   }
 
   /** Verificación manual ("Verificar ahora"). */
@@ -234,8 +287,12 @@ export class StoreDomainsService implements OnModuleInit, OnModuleDestroy {
     const saved = await this.domains.save(domain);
     if (saved.status === 'active') {
       this.activeHosts.set(saved.hostname, saved.storeId);
+      if (saved.isPrimary) this.primaryHosts.set(saved.storeId, saved.hostname);
     } else {
       this.activeHosts.delete(saved.hostname);
+      if (this.primaryHosts.get(saved.storeId) === saved.hostname) {
+        this.primaryHosts.delete(saved.storeId);
+      }
     }
     return saved;
   }

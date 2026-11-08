@@ -9,6 +9,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   ArrowLeft,
+  Bell,
   Copy,
   ExternalLink,
   Globe,
@@ -44,7 +45,14 @@ import type {
 } from "@/types/api"
 import { AppHeader } from "@/components/app-header"
 import { SubdomainStatus } from "@/components/stores/subdomain-status"
+import { ImageUpload } from "@/components/stores/image-upload"
+import { StorePreview } from "@/components/stores/store-preview"
+import {
+  FAVICON_RULES,
+  LOGO_RULES,
+} from "@/components/stores/use-image-upload"
 import { CustomDomains } from "@/components/stores/custom-domains"
+import { NotificationsEditor } from "@/components/stores/notifications-editor"
 import { SiteEditor } from "@/components/stores/site/site-editor"
 import {
   SITE_SECTIONS,
@@ -57,6 +65,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ColorPicker } from "@/components/ui/color-picker"
+import { Combobox } from "@/components/ui/combobox"
+import {
+  CURRENCY_OPTIONS,
+  LANGUAGE_OPTIONS,
+  withCurrentOption,
+} from "@/data/store-regional"
 
 /** Estado editable del formulario (todo como string para inputs controlados). */
 interface FormState {
@@ -69,6 +84,7 @@ interface FormState {
   logoUrl: string
   faviconUrl: string
   primaryColor: string
+  secondaryColor: string
   contactEmail: string
   phone: string
   address: string
@@ -102,6 +118,7 @@ function toForm(store: Store): FormState {
     logoUrl: store.logoUrl ?? "",
     faviconUrl: store.faviconUrl ?? "",
     primaryColor: store.primaryColor ?? "",
+    secondaryColor: store.secondaryColor ?? "",
     contactEmail: store.contactEmail ?? "",
     phone: store.phone ?? "",
     address: store.address ?? "",
@@ -152,6 +169,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof FormState)[]> = {
     "logoUrl",
     "faviconUrl",
     "primaryColor",
+    "secondaryColor",
     "currency",
     "locale",
   ],
@@ -217,6 +235,9 @@ export function StoreDetailPage() {
   const { user } = useAuth()
   const canUpdate = user?.permissions.includes("stores:update") ?? false
   const canDelete = user?.permissions.includes("stores:delete") ?? false
+  // Las credenciales de notificaciones tienen su propio permiso.
+  const canNotify =
+    user?.permissions.includes("stores:notifications") ?? false
 
   const [store, setStore] = useState<Store | null>(null)
   const [form, setForm] = useState<FormState | null>(null)
@@ -229,6 +250,10 @@ export function StoreDetailPage() {
   const [section, setSection] = useState<SectionId>("general")
   // Subsección activa del grupo «Sitio web» (null = se ve una sección de Tienda).
   const [siteSection, setSiteSection] = useState<SiteSectionId | null>(null)
+  // Sección «Notificaciones»: se monta al abrirla y se conserva para no
+  // perder el borrador al cambiar de sección.
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [notificationsOpened, setNotificationsOpened] = useState(false)
   const [baseDomain, setBaseDomain] = useState<string | null>(null)
   // Disponibilidad del subdominio (se comprueba 1 s después de dejar de escribir).
   const subdomain = useSubdomainAvailability(
@@ -377,12 +402,22 @@ export function StoreDetailPage() {
   function changeSection(next: SectionId) {
     setSection(next)
     setSiteSection(null)
+    setShowNotifications(false)
+    setError(null)
+    setSavedAt(null)
+  }
+
+  function openNotifications() {
+    setSiteSection(null)
+    setShowNotifications(true)
+    setNotificationsOpened(true)
     setError(null)
     setSavedAt(null)
   }
 
   function changeSiteSection(next: SiteSectionId) {
     setSiteSection(next)
+    setShowNotifications(false)
     setError(null)
     setSavedAt(null)
   }
@@ -433,6 +468,15 @@ export function StoreDetailPage() {
   }
 
   const readOnly = !canUpdate
+
+  /** Recarga solo los datos de la tienda (p. ej. URL pública tras cambiar el favorito). */
+  async function refreshStore() {
+    try {
+      setStore(await getStore(store!.id))
+    } catch {
+      // Si falla, se mantiene lo que ya se muestra.
+    }
+  }
   const savedSubdomain = store.slug === form.slug
   // En Dominio no se guarda mientras el subdominio no esté confirmado libre.
   const blocked =
@@ -462,6 +506,14 @@ export function StoreDetailPage() {
         }
         actions={
           <>
+            {store.publicUrl && (
+              <Button asChild variant="outline">
+                <a href={store.publicUrl} target="_blank" rel="noreferrer">
+                  <ExternalLink className="size-4" />
+                  Ir
+                </a>
+              </Button>
+            )}
             {canDelete && (
               <Button
                 variant="outline"
@@ -486,7 +538,7 @@ export function StoreDetailPage() {
             Tienda
           </p>
           {SECTIONS.map(({ id: sectionId, label, icon: Icon }) => {
-            const active = !siteSection && section === sectionId
+            const active = !siteSection && !showNotifications && section === sectionId
             return (
               <button
                 key={sectionId}
@@ -505,6 +557,23 @@ export function StoreDetailPage() {
               </button>
             )
           })}
+
+          {canNotify && (
+            <button
+              type="button"
+              onClick={openNotifications}
+              aria-current={showNotifications ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors",
+                showNotifications
+                  ? "bg-neutral-900 text-white"
+                  : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900"
+              )}
+            >
+              <Bell className="size-4 shrink-0" />
+              Notificaciones
+            </button>
+          )}
 
           <p className="px-3 pt-4 pb-1 text-[11px] font-semibold tracking-wide text-neutral-400 uppercase">
             Sitio web
@@ -550,8 +619,15 @@ export function StoreDetailPage() {
             onSaved={setStore}
           />
 
+          {canNotify && notificationsOpened && (
+            <NotificationsEditor
+              storeId={store.id}
+              active={showNotifications}
+            />
+          )}
+
           <ActiveSectionContext.Provider
-            value={siteSection ? ("" as SectionId) : section}
+            value={siteSection || showNotifications ? ("" as SectionId) : section}
           >
             <fieldset disabled={readOnly} className="flex flex-col gap-6">
               <Section
@@ -585,100 +661,155 @@ export function StoreDetailPage() {
               <Section
                 id="brand"
                 title="Marca e información"
-                description="Textos y recursos visuales que muestra la tienda."
+                description="Textos y recursos visuales que muestra la tienda. La vista previa se actualiza mientras editas."
               >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field id="store-title" label="Título">
-                    <Input
-                      id="store-title"
-                      value={form.title}
-                      onChange={(e) => patch("title", e.target.value)}
-                      maxLength={120}
-                    />
-                  </Field>
-                  <Field id="store-tagline" label="Eslogan">
-                    <Input
-                      id="store-tagline"
-                      value={form.tagline}
-                      onChange={(e) => patch("tagline", e.target.value)}
-                      maxLength={200}
-                    />
-                  </Field>
-                </div>
-                <Field id="store-description" label="Descripción">
-                  <textarea
-                    id="store-description"
-                    value={form.description}
-                    onChange={(e) => patch("description", e.target.value)}
-                    maxLength={2000}
-                    rows={4}
-                    className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50"
+                <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+                  <StorePreview
+                    className="order-first w-full max-w-md xl:sticky xl:top-0 xl:order-last xl:max-w-none xl:self-start"
+                    name={form.name}
+                    title={form.title}
+                    seoTitle={form.seoTitle}
+                    tagline={form.tagline}
+                    logoUrl={form.logoUrl}
+                    faviconUrl={form.faviconUrl}
+                    primaryColor={form.primaryColor}
+                    secondaryColor={form.secondaryColor}
+                    host={
+                      baseDomain && form.slug
+                        ? `${form.slug}.${baseDomain}`
+                        : (store.publicUrl?.replace("https://", "") ??
+                          "tu-tienda.com")
+                    }
                   />
-                </Field>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Field id="store-logo" label="URL del logo">
-                    <Input
-                      id="store-logo"
-                      type="url"
-                      value={form.logoUrl}
-                      onChange={(e) => patch("logoUrl", e.target.value)}
-                      placeholder="https://…"
-                    />
-                  </Field>
-                  <Field id="store-favicon" label="URL del favicon">
-                    <Input
-                      id="store-favicon"
-                      type="url"
-                      value={form.faviconUrl}
-                      onChange={(e) => patch("faviconUrl", e.target.value)}
-                      placeholder="https://…"
-                    />
-                  </Field>
-                  <Field id="store-color" label="Color de marca">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        aria-label="Elegir color de marca"
-                        value={
-                          /^#[0-9a-fA-F]{6}$/.test(form.primaryColor)
-                            ? form.primaryColor
-                            : "#000000"
-                        }
-                        onChange={(e) => patch("primaryColor", e.target.value)}
-                        className="size-9 shrink-0 cursor-pointer rounded-md border bg-transparent p-1"
+
+                  <div className="flex min-w-0 flex-col gap-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field id="store-title" label="Título">
+                        <Input
+                          id="store-title"
+                          value={form.title}
+                          onChange={(e) => patch("title", e.target.value)}
+                          maxLength={120}
+                        />
+                      </Field>
+                      <Field id="store-tagline" label="Eslogan">
+                        <Input
+                          id="store-tagline"
+                          value={form.tagline}
+                          onChange={(e) => patch("tagline", e.target.value)}
+                          maxLength={200}
+                        />
+                      </Field>
+                    </div>
+                    <Field id="store-description" label="Descripción">
+                      <textarea
+                        id="store-description"
+                        value={form.description}
+                        onChange={(e) => patch("description", e.target.value)}
+                        maxLength={2000}
+                        rows={4}
+                        className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px] disabled:opacity-50"
                       />
-                      <Input
-                        id="store-color"
-                        value={form.primaryColor}
-                        onChange={(e) => patch("primaryColor", e.target.value)}
-                        placeholder="#00B3A6"
-                        maxLength={7}
+                    </Field>
+
+                    <div className="grid gap-4 2xl:grid-cols-2">
+                      <ImageUpload
+                        storeId={store.id}
+                        label="Logo"
+                        value={form.logoUrl}
+                        onChange={(url) => patch("logoUrl", url)}
+                        rules={LOGO_RULES}
+                        readOnly={readOnly}
+                        hint="Mejor con fondo transparente. Se usa en el encabezado, el pie y al compartir."
+                      />
+                      <ImageUpload
+                        storeId={store.id}
+                        label="Favicon"
+                        value={form.faviconUrl}
+                        onChange={(url) => patch("faviconUrl", url)}
+                        rules={FAVICON_RULES}
+                        readOnly={readOnly}
+                        previewSizes={[32, 16]}
+                        hint="Icono cuadrado de la pestaña del navegador, de al menos 32×32 px."
                       />
                     </div>
-                  </Field>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field
-                    id="store-currency"
-                    label="Moneda"
-                    hint="Código de 3 letras (USD, COP, MXN…)."
-                  >
-                    <Input
-                      id="store-currency"
-                      value={form.currency}
-                      onChange={(e) => patch("currency", e.target.value)}
-                      maxLength={3}
-                    />
-                  </Field>
-                  <Field id="store-locale" label="Idioma">
-                    <Input
-                      id="store-locale"
-                      value={form.locale}
-                      onChange={(e) => patch("locale", e.target.value)}
-                      maxLength={10}
-                      placeholder="es"
-                    />
-                  </Field>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field
+                        id="store-color"
+                        label="Color de marca"
+                        hint="Botones, enlaces y detalles de todo el sitio."
+                      >
+                        <ColorPicker
+                          id="store-color"
+                          label="Color de marca"
+                          value={form.primaryColor}
+                          onChange={(color) => patch("primaryColor", color)}
+                          disabled={readOnly}
+                          allowEmpty
+                          placeholder="Elegir color de marca"
+                          contrastWith="#ffffff"
+                          contrastLabel="el texto blanco de los botones"
+                        />
+                      </Field>
+                      <Field
+                        id="store-color-secondary"
+                        label="Segundo color de marca"
+                        hint="Se combina con el principal en los degradados de los botones."
+                      >
+                        <ColorPicker
+                          id="store-color-secondary"
+                          label="Segundo color de marca"
+                          value={form.secondaryColor}
+                          onChange={(color) => patch("secondaryColor", color)}
+                          disabled={readOnly}
+                          allowEmpty
+                          placeholder="Elegir segundo color"
+                          contrastWith="#ffffff"
+                          contrastLabel="el texto blanco de los botones"
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field
+                        id="store-currency"
+                        label="Moneda"
+                        hint="Moneda principal de la tienda."
+                      >
+                        <Combobox
+                          id="store-currency"
+                          options={withCurrentOption(
+                            CURRENCY_OPTIONS,
+                            form.currency
+                          )}
+                          value={form.currency}
+                          onChange={(currency) => patch("currency", currency)}
+                          placeholder="Buscar moneda…"
+                          emptyText="No hay monedas que coincidan."
+                          disabled={readOnly}
+                        />
+                      </Field>
+                      <Field
+                        id="store-locale"
+                        label="Idioma"
+                        hint="Define el idioma del sitio y el formato de números y fechas."
+                      >
+                        <Combobox
+                          id="store-locale"
+                          options={withCurrentOption(
+                            LANGUAGE_OPTIONS,
+                            form.locale
+                          )}
+                          value={form.locale}
+                          onChange={(locale) => patch("locale", locale)}
+                          placeholder="Buscar idioma…"
+                          emptyText="No hay idiomas que coincidan."
+                          disabled={readOnly}
+                        />
+                      </Field>
+                    </div>
+                  </div>
                 </div>
               </Section>
       
@@ -814,7 +945,17 @@ export function StoreDetailPage() {
                   </p>
                 )}
               
-                <CustomDomains storeId={store.id} canEdit={canUpdate} />
+                <CustomDomains
+                  storeId={store.id}
+                  canEdit={canUpdate}
+                  onChanged={() => void refreshStore()}
+                  platformHost={baseDomain ? `${store.slug}.${baseDomain}` : null}
+                  pendingPlatformHost={
+                    baseDomain && form.slug && form.slug !== store.slug
+                      ? `${form.slug}.${baseDomain}`
+                      : null
+                  }
+                />
               </Section>
       
               <Section
@@ -822,7 +963,11 @@ export function StoreDetailPage() {
                 title="SEO"
                 description="Metadatos para buscadores."
               >
-                <Field id="store-seo-title" label="Título SEO">
+                <Field
+                  id="store-seo-title"
+                  label="Título SEO"
+                  hint="Opcional. Si lo dejas vacío, la pestaña y Google muestran «Título | Eslogan»."
+                >
                   <Input
                     id="store-seo-title"
                     value={form.seoTitle}
@@ -887,7 +1032,7 @@ export function StoreDetailPage() {
               </Section>
             </fieldset>
           </ActiveSectionContext.Provider>
-            {canUpdate && !siteSection && (
+            {canUpdate && !siteSection && !showNotifications && (
               <div className="flex items-center gap-3">
                 <Button onClick={handleSave} disabled={saving || !dirty || blocked}>
                   {saving && <Loader2 className="size-4 animate-spin" />}

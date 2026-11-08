@@ -50,6 +50,7 @@ export interface PublicStore {
   logoUrl: string | null;
   faviconUrl: string | null;
   primaryColor: string | null;
+  secondaryColor: string | null;
   contactEmail: string | null;
   phone: string | null;
   address: string | null;
@@ -84,7 +85,12 @@ export class StoresService {
     return value ? value.trim().toLowerCase() : null;
   }
 
-  private publicUrlFor(slug: string): string | null {
+  /** URL pública: dominio favorito activo o, si no, el subdominio de la plataforma. */
+  private publicUrlFor(slug: string, storeId?: string): string | null {
+    const primary = storeId
+      ? this.domainsService.primaryHostFor(storeId)
+      : undefined;
+    if (primary) return `https://${primary}`;
     return this.baseDomain ? `https://${slug}.${this.baseDomain}` : null;
   }
 
@@ -115,7 +121,7 @@ export class StoresService {
       const { siteConfig: _siteConfig, ...rest } = row;
       return {
         ...rest,
-        publicUrl: this.publicUrlFor(row.slug),
+        publicUrl: this.publicUrlFor(row.slug, row.id),
       } as unknown as StoreSummary;
     });
   }
@@ -138,7 +144,7 @@ export class StoresService {
       siteConfig: resolveSiteConfig(siteConfig),
       productIds: products.map((p) => p.id),
       designIds: designs.map((d) => d.id),
-      publicUrl: this.publicUrlFor(rest.slug),
+      publicUrl: this.publicUrlFor(rest.slug, rest.id),
     };
   }
 
@@ -180,6 +186,8 @@ export class StoresService {
   }
 
   async remove(id: string): Promise<void> {
+    // Libera los dominios en Vercel antes de borrar (la BD los borra en cascada).
+    await this.domainsService.removeAllForStore(id);
     const result = await this.storesRepository.delete(id);
     if (!result.affected) {
       throw new NotFoundException('Tienda no encontrada');
@@ -234,6 +242,28 @@ export class StoresService {
    * (<slug>.<dominio base>). Devuelve null si no hay coincidencia.
    */
   async findPublicByHost(rawHost: string): Promise<PublicStore | null> {
+    const store = await this.findActiveByHost(rawHost);
+    return store ? this.toPublic(store) : null;
+  }
+
+  /**
+   * Tienda ACTIVA (entidad) para el contexto de una petición del storefront:
+   * primero por host (dominio propio o subdominio) y, si el host no pertenece
+   * a ninguna tienda (localhost, previews de Vercel), por slug explícito.
+   */
+  async findActiveByContext(
+    rawHost?: string | null,
+    slug?: string | null,
+  ): Promise<Store | null> {
+    if (rawHost) {
+      const byHost = await this.findActiveByHost(rawHost);
+      if (byHost) return byHost;
+    }
+    return slug ? this.findActiveBySlug(slug) : null;
+  }
+
+  /** Tienda activa por host (dominio propio o subdominio del dominio base). */
+  private async findActiveByHost(rawHost: string): Promise<Store | null> {
     const host = rawHost.trim().toLowerCase().replace(/:\d+$/, '');
     if (!host) return null;
 
@@ -255,7 +285,7 @@ export class StoresService {
         });
       }
     }
-    return store ? this.toPublic(store) : null;
+    return store;
   }
 
   /**
@@ -301,6 +331,7 @@ export class StoresService {
       logoUrl: store.logoUrl,
       faviconUrl: store.faviconUrl,
       primaryColor: store.primaryColor,
+      secondaryColor: store.secondaryColor,
       contactEmail: store.contactEmail,
       phone: store.phone,
       address: store.address,
@@ -309,7 +340,7 @@ export class StoresService {
       locale: store.locale,
       seoTitle: store.seoTitle,
       seoDescription: store.seoDescription,
-      publicUrl: this.publicUrlFor(store.slug),
+      publicUrl: this.publicUrlFor(store.slug, store.id),
       site: resolveSiteConfig(store.siteConfig),
     };
   }
@@ -355,6 +386,7 @@ export class StoresService {
       'logoUrl',
       'faviconUrl',
       'primaryColor',
+      'secondaryColor',
       'contactEmail',
       'phone',
       'address',

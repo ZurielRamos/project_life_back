@@ -52,10 +52,11 @@ export class CustomersService {
   }
 
   /**
-   * Crea un cliente (lead). El celular ya viene VERIFICADO por OTP (lo toma
-   * del token de registro, no del cuerpo). Es el identificador y es único.
+   * Crea un cliente (lead) de una tienda. El celular ya viene VERIFICADO por
+   * OTP (lo toma del token de registro, no del cuerpo). Es único por tienda.
    */
   async register(
+    storeId: string,
     verifiedPhone: string,
     dto: RegisterCustomerDto,
   ): Promise<Customer> {
@@ -69,9 +70,7 @@ export class CustomersService {
     if (phone.length < 7) {
       throw new BadRequestException('El número de celular no es válido');
     }
-    const existing = await this.customersRepository.findOne({
-      where: { phone },
-    });
+    const existing = await this.findByPhone(storeId, phone);
     if (existing) {
       throw new BadRequestException('El celular ya está registrado');
     }
@@ -79,6 +78,7 @@ export class CustomersService {
     const email = dto.email?.trim().toLowerCase() || null;
 
     const customer = this.customersRepository.create({
+      storeId,
       phone,
       email,
       password: null,
@@ -95,10 +95,10 @@ export class CustomersService {
     return this.customersRepository.save(customer);
   }
 
-  /** Busca un cliente activo por celular (para iniciar el login por OTP). */
-  findActiveByPhone(phone: string): Promise<Customer | null> {
+  /** Busca el cliente de una tienda por celular (único por tienda). */
+  findByPhone(storeId: string, phone: string): Promise<Customer | null> {
     return this.customersRepository.findOne({
-      where: { phone: this.normalizePhone(phone) },
+      where: { storeId, phone: this.normalizePhone(phone) },
     });
   }
 

@@ -106,6 +106,7 @@ export function ContactEditor({ value, onChange }: Props) {
           createItem={() => ({ question: "", answer: "" })}
           max={12}
           itemLabel="pregunta"
+          itemTitle={(faq) => faq.question}
           addLabel="Agregar pregunta"
           emptyLabel="Sin preguntas frecuentes: la sección no se muestra."
           renderItem={(faq, update) => (

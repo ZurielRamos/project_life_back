@@ -1,13 +1,11 @@
-import { IsIn, IsString, MaxLength, MinLength } from 'class-validator';
-import {
-  PRODUCT_FITS,
-  type ProductFit,
-} from '../../products/entities/product.entity';
+import { IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateFitCategoryDto {
-  /** Ajuste (enum fijo) al que pertenece la categoría. */
-  @IsIn(PRODUCT_FITS)
-  fit: ProductFit;
+  /** Clave de un ajuste existente (se valida en el servicio). */
+  @IsString()
+  @MinLength(1)
+  @MaxLength(60)
+  fit: string;
 
   /** Nombre visible de la categoría, p.ej. "Oversize". */
   @IsString()

@@ -1,14 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Loader2, Settings2 } from "lucide-react"
 
 import { ApiError } from "@/lib/api"
 import {
+  createFit,
   createFitCategory,
+  deleteFit,
   deleteFitCategory,
   listFitCategories,
+  listFits,
 } from "@/lib/fit-categories-api"
 import { updateProduct } from "@/lib/products-api"
 import type {
+  Fit,
   FitCategory,
   Product,
   ProductFit,
@@ -25,6 +29,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { OptionManagerDialog } from "@/components/products/option-manager-dialog"
 import {
   Select,
   SelectContent,
@@ -35,14 +40,6 @@ import {
 
 const FIT_NONE = "none"
 const CATEGORY_NONE = "none"
-
-const FIT_OPTIONS: { value: ProductFit; label: string }[] = [
-  { value: "men", label: "Hombre" },
-  { value: "women", label: "Mujer" },
-  { value: "unisex", label: "Unisex" },
-  { value: "kids", label: "Niños" },
-  { value: "family", label: "Familiar" },
-]
 
 interface EditAttributesDialogProps {
   product: Product
@@ -68,19 +65,25 @@ export function EditAttributesDialog({
   const [fitCategoryId, setFitCategoryId] = useState<string | "">(
     product.fitCategoryId ?? ""
   )
-  // Categorías del ajuste seleccionado (administrables desde el selector).
+  // Ajustes administrables (cargados de la API).
+  const [fits, setFits] = useState<Fit[]>([])
+  // Categorías del ajuste seleccionado.
   const [fitCategories, setFitCategories] = useState<FitCategory[]>([])
   const [catLoading, setCatLoading] = useState(false)
   const [catError, setCatError] = useState<string | null>(null)
-  const [newCatName, setNewCatName] = useState("")
-  const [addingCat, setAddingCat] = useState(false)
-  const [deletingCatId, setDeletingCatId] = useState<string | null>(null)
+  // Modales de configuración de opciones.
+  const [manageFitsOpen, setManageFitsOpen] = useState(false)
+  const [manageCatsOpen, setManageCatsOpen] = useState(false)
+  const [costPrice, setCostPrice] = useState(
+    product.costPriceCents != null
+      ? (product.costPriceCents / 100).toString()
+      : ""
+  )
   const [price, setPrice] = useState(
     product.basePriceCents != null
       ? (product.basePriceCents / 100).toString()
       : ""
   )
-  const [currency, setCurrency] = useState(product.currency ?? "")
   // Model info
   const [modelLabel, setModelLabel] = useState(product.modelInfo?.label ?? "")
   const [modelHeight, setModelHeight] = useState(
@@ -95,6 +98,40 @@ export function EditAttributesDialog({
 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Carga los ajustes disponibles al abrir el diálogo.
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    listFits()
+      .then((list) => {
+        if (active) setFits(list)
+      })
+      .catch((err) => {
+        if (!active) return
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "No se pudieron cargar los ajustes."
+        )
+      })
+    return () => {
+      active = false
+    }
+  }, [open])
+
+  async function handleAddFit(name: string) {
+    const created = await createFit(name)
+    setFits((prev) => [...prev, created])
+    handleFitChange(created.key)
+  }
+
+  async function handleDeleteFit(target: { id: string }) {
+    await deleteFit(target.id)
+    const removed = fits.find((f) => f.id === target.id)
+    setFits((prev) => prev.filter((f) => f.id !== target.id))
+    if (removed && fit === removed.key) handleFitChange(FIT_NONE)
+  }
 
   // Carga las categorías del ajuste seleccionado. Se re-ejecuta al abrir el
   // diálogo o al cambiar el ajuste. Sin ajuste no hay categorías que mostrar.
@@ -133,49 +170,22 @@ export function EditAttributesDialog({
     // La categoría pertenece a un ajuste; al cambiarlo se reinicia.
     setFitCategoryId("")
     setCatError(null)
-    setNewCatName("")
   }
 
-  async function handleAddCategory() {
-    const name = newCatName.trim()
-    if (!name || !fit) return
-    setAddingCat(true)
-    setCatError(null)
-    try {
-      const created = await createFitCategory({ fit, name })
-      setFitCategories((prev) =>
-        [...prev, created].sort((a, b) => a.position - b.position)
-      )
-      setFitCategoryId(created.id)
-      setNewCatName("")
-    } catch (err) {
-      setCatError(
-        err instanceof ApiError
-          ? err.message
-          : "No se pudo crear la categoría."
-      )
-    } finally {
-      setAddingCat(false)
-    }
+  async function handleAddCategory(name: string) {
+    if (!fit) return
+    const created = await createFitCategory({ fit, name })
+    setFitCategories((prev) =>
+      [...prev, created].sort((a, b) => a.position - b.position)
+    )
+    setFitCategoryId(created.id)
   }
 
-  async function handleDeleteCategory(cat: FitCategory) {
-    setDeletingCatId(cat.id)
-    setCatError(null)
-    try {
-      await deleteFitCategory(cat.id)
-      setFitCategories((prev) => prev.filter((c) => c.id !== cat.id))
-      // Si el producto usaba la categoría eliminada, limpia la selección.
-      setFitCategoryId((current) => (current === cat.id ? "" : current))
-    } catch (err) {
-      setCatError(
-        err instanceof ApiError
-          ? err.message
-          : "No se pudo eliminar la categoría."
-      )
-    } finally {
-      setDeletingCatId(null)
-    }
+  async function handleDeleteCategory(target: { id: string }) {
+    await deleteFitCategory(target.id)
+    setFitCategories((prev) => prev.filter((c) => c.id !== target.id))
+    // Si el producto usaba la categoría eliminada, limpia la selección.
+    setFitCategoryId((current) => (current === target.id ? "" : current))
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -191,13 +201,16 @@ export function EditAttributesDialog({
       ...(fit ? { fit } : {}),
       // La categoría se envía solo si hay un ajuste; null la limpia.
       fitCategoryId: fit && fitCategoryId ? fitCategoryId : null,
-      currency: currency.trim().toUpperCase(),
       modelInfo: {
         label: modelLabel.trim() || null,
         heightCm: modelHeight ? Number(modelHeight) : null,
         weightKg: modelWeight ? Number(modelWeight) : null,
         wearingSize: modelSize.trim() || null,
       },
+    }
+    const costNum = Number(costPrice)
+    if (costPrice !== "" && !Number.isNaN(costNum)) {
+      payload.costPriceCents = Math.round(costNum * 100)
     }
     const priceNum = Number(price)
     if (price !== "" && !Number.isNaN(priceNum)) {
@@ -220,6 +233,7 @@ export function EditAttributesDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
@@ -285,135 +299,97 @@ export function EditAttributesDialog({
               className="border-input focus-visible:border-ring focus-visible:ring-ring/50 w-full resize-none rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
             />
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="fit">Ajuste</Label>
-              <Select
-                value={fit === "" ? FIT_NONE : fit}
-                onValueChange={handleFitChange}
-              >
-                <SelectTrigger id="fit" className="w-full">
-                  <SelectValue placeholder="—" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={FIT_NONE}>—</SelectItem>
-                  {FIT_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={fit === "" ? FIT_NONE : fit}
+                  onValueChange={handleFitChange}
+                >
+                  <SelectTrigger id="fit" className="w-full">
+                    <SelectValue placeholder="—" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FIT_NONE}>—</SelectItem>
+                    {fits.map((f) => (
+                      <SelectItem key={f.id} value={f.key}>
+                        {f.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  title="Configurar ajustes"
+                  aria-label="Configurar ajustes"
+                  onClick={() => setManageFitsOpen(true)}
+                >
+                  <Settings2 className="size-4" />
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-2">
               <Label htmlFor="fit-category">Categoría de ajuste</Label>
-              <Select
-                value={fitCategoryId === "" ? CATEGORY_NONE : fitCategoryId}
-                onValueChange={(value) =>
-                  setFitCategoryId(value === CATEGORY_NONE ? "" : value)
-                }
-                disabled={!fit || catLoading}
-              >
-                <SelectTrigger id="fit-category" className="w-full">
-                  <SelectValue
-                    placeholder={fit ? "—" : "Elige un ajuste primero"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={CATEGORY_NONE}>—</SelectItem>
-                  {fitCategories.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Gestión de categorías del ajuste seleccionado (fuera del Select
-              para que los clics de agregar/eliminar sean fiables). */}
-          {fit && (
-            <div className="grid gap-2 rounded-md border bg-neutral-50 p-3">
-              <p className="text-xs font-medium text-neutral-700">
-                Categorías de este ajuste
-              </p>
-
               <div className="flex items-center gap-2">
-                <Input
-                  value={newCatName}
-                  onChange={(e) => setNewCatName(e.target.value)}
-                  placeholder="Nueva categoría"
-                  className="h-8 text-sm"
-                  maxLength={60}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault()
-                      void handleAddCategory()
-                    }
-                  }}
-                />
+                <Select
+                  value={fitCategoryId === "" ? CATEGORY_NONE : fitCategoryId}
+                  onValueChange={(value) =>
+                    setFitCategoryId(value === CATEGORY_NONE ? "" : value)
+                  }
+                  disabled={!fit || catLoading}
+                >
+                  <SelectTrigger id="fit-category" className="w-full">
+                    <SelectValue
+                      placeholder={fit ? "—" : "Elige un ajuste primero"}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={CATEGORY_NONE}>—</SelectItem>
+                    {fitCategories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <Button
                   type="button"
-                  size="sm"
                   variant="outline"
-                  className="h-8 shrink-0"
-                  disabled={addingCat || !newCatName.trim()}
-                  onClick={() => void handleAddCategory()}
+                  size="icon"
+                  className="shrink-0"
+                  title="Configurar categorías de ajuste"
+                  aria-label="Configurar categorías de ajuste"
+                  disabled={!fit}
+                  onClick={() => setManageCatsOpen(true)}
                 >
-                  {addingCat ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Plus className="size-4" />
-                  )}
-                  Agregar
+                  <Settings2 className="size-4" />
                 </Button>
               </div>
-
-              {catLoading ? (
-                <p className="text-muted-foreground text-xs">Cargando…</p>
-              ) : fitCategories.length === 0 ? (
-                <p className="text-muted-foreground text-xs">
-                  Aún no hay categorías para este ajuste.
-                </p>
-              ) : (
-                <ul className="flex flex-wrap gap-2">
-                  {fitCategories.map((c) => (
-                    <li
-                      key={c.id}
-                      className="flex items-center gap-1 rounded-full border bg-white py-1 pr-1 pl-3 text-sm"
-                    >
-                      <span>{c.name}</span>
-                      <button
-                        type="button"
-                        title={`Eliminar "${c.name}"`}
-                        aria-label={`Eliminar categoría ${c.name}`}
-                        className="text-muted-foreground hover:text-destructive flex size-6 shrink-0 items-center justify-center rounded-full disabled:opacity-50"
-                        disabled={deletingCatId === c.id}
-                        onClick={() => void handleDeleteCategory(c)}
-                      >
-                        {deletingCatId === c.id ? (
-                          <Loader2 className="size-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="size-3.5" />
-                        )}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
               {catError && (
                 <p className="text-destructive text-xs">{catError}</p>
               )}
             </div>
-          )}
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="price">Precio</Label>
+              <Label htmlFor="cost-price">Precio costo</Label>
+              <Input
+                id="cost-price"
+                type="number"
+                step="0.01"
+                min="0"
+                value={costPrice}
+                onChange={(e) => setCostPrice(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="price">Precio venta</Label>
               <Input
                 id="price"
                 type="number"
@@ -421,16 +397,6 @@ export function EditAttributesDialog({
                 min="0"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="currency">Moneda</Label>
-              <Input
-                id="currency"
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                placeholder="USD"
-                maxLength={3}
               />
             </div>
           </div>
@@ -500,5 +466,31 @@ export function EditAttributesDialog({
         </form>
       </DialogContent>
     </Dialog>
+
+    <OptionManagerDialog
+      open={manageFitsOpen}
+      onOpenChange={setManageFitsOpen}
+      title="Configurar ajustes"
+      description="Agrega o elimina las opciones del selector de ajuste."
+      placeholder="Nuevo ajuste"
+      emptyText="Aún no hay ajustes."
+      items={fits}
+      onAdd={handleAddFit}
+      onDelete={handleDeleteFit}
+    />
+
+    <OptionManagerDialog
+      open={manageCatsOpen}
+      onOpenChange={setManageCatsOpen}
+      title="Configurar categorías de ajuste"
+      description={`Categorías de «${fits.find((f) => f.key === fit)?.name ?? fit}».`}
+      placeholder="Nueva categoría"
+      emptyText="Aún no hay categorías para este ajuste."
+      loading={catLoading}
+      items={fitCategories}
+      onAdd={handleAddCategory}
+      onDelete={handleDeleteCategory}
+    />
+    </>
   )
 }

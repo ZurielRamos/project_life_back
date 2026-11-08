@@ -20,6 +20,7 @@ import { SetColorsDto } from './dto/set-colors.dto';
 import { SetPrintAreasDto } from './dto/set-print-areas.dto';
 import { SetSizesDto } from './dto/set-sizes.dto';
 import { FitCategory } from '../fit-categories/entities/fit-category.entity';
+import { Fit } from '../fit-categories/entities/fit.entity';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PhotoSession } from './entities/photo-session.entity';
 import { PrintArea } from './entities/print-area.entity';
@@ -75,6 +76,8 @@ export class ProductsService {
     private readonly colorsRepository: Repository<ProductColor>,
     @InjectRepository(FitCategory)
     private readonly fitCategoriesRepository: Repository<FitCategory>,
+    @InjectRepository(Fit)
+    private readonly fitsRepository: Repository<Fit>,
     private readonly sudomockService: SudomockService,
   ) {}
 
@@ -231,6 +234,14 @@ export class ProductsService {
       product.careInstructions = dto.careInstructions ?? null;
     }
     if (dto.fit !== undefined) {
+      if (dto.fit) {
+        const fitExists = await this.fitsRepository.exist({
+          where: { key: dto.fit },
+        });
+        if (!fitExists) {
+          throw new BadRequestException(`El ajuste "${dto.fit}" no existe`);
+        }
+      }
       product.fit = dto.fit ?? null;
       // Si cambia el ajuste y no se envía una categoría nueva, se limpia la
       // categoría actual (pertenecía al ajuste anterior).
@@ -258,6 +269,9 @@ export class ProductsService {
     }
     if (dto.basePriceCents !== undefined) {
       product.basePriceCents = dto.basePriceCents ?? null;
+    }
+    if (dto.costPriceCents !== undefined) {
+      product.costPriceCents = dto.costPriceCents ?? null;
     }
     if (dto.currency !== undefined) {
       product.currency = dto.currency ? dto.currency.toUpperCase() : null;

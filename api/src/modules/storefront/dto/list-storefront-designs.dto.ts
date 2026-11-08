@@ -1,19 +1,14 @@
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import {
-  PRODUCT_FITS,
-  type ProductFit,
-} from '../../products/entities/product.entity';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 /**
- * Filtros de la tienda pública. `fit` mapea el género de la sección del
- * home: mujer=women, hombre=men, unisex=unisex, niños=kids.
+ * Filtros de la tienda pública. `fit` es la clave de un ajuste
+ * administrable (p.ej. men, women, unisex, kids, family u otros creados).
  */
 export class ListStorefrontDesignsDto {
   @IsOptional()
-  @IsEnum(PRODUCT_FITS, {
-    message: 'fit debe ser men, women, unisex, kids o family',
-  })
-  fit?: ProductFit;
+  @IsString()
+  @MaxLength(60)
+  fit?: string;
 
   /** Filtro opcional por categoría (texto libre del producto). */
   @IsOptional()

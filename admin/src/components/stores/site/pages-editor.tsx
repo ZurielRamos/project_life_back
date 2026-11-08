@@ -44,6 +44,7 @@ export function PagesEditor({ value, onChange }: Props) {
           })}
           max={10}
           itemLabel="página"
+          itemTitle={(page) => page.title}
           addLabel="Agregar página"
           emptyLabel="Aún no hay páginas. Crea la primera, por ejemplo «Envíos y devoluciones»."
           renderItem={(page, update) => (

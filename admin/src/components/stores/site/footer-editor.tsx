@@ -2,8 +2,7 @@ import type { FooterColumn, FooterConfig } from "@/types/api"
 
 import {
   Card,
-  FieldRow,
-  LinkField,
+  LinkList,
   RepeatableList,
   SwitchField,
   TextAreaField,
@@ -56,6 +55,7 @@ export function FooterEditor({ value, onChange }: Props) {
           createItem={() => ({ title: "", links: [] })}
           max={4}
           itemLabel="columna"
+          itemTitle={(column) => column.title}
           addLabel="Agregar columna"
           emptyLabel="Sin columnas de enlaces."
           renderItem={(column, update) => (
@@ -67,28 +67,13 @@ export function FooterEditor({ value, onChange }: Props) {
                 maxLength={40}
                 placeholder="Ayuda"
               />
-              <RepeatableList
+              <LinkList
                 items={column.links}
                 onChange={(links) => update({ links })}
-                createItem={() => ({ label: "", url: "" })}
                 max={10}
                 itemLabel="enlace"
                 addLabel="Agregar enlace"
-                renderItem={(link, updateLink) => (
-                  <FieldRow>
-                    <TextField
-                      label="Texto"
-                      value={link.label}
-                      onChange={(label) => updateLink({ label })}
-                      maxLength={60}
-                    />
-                    <LinkField
-                      label="Destino"
-                      value={link.url}
-                      onChange={(url) => updateLink({ url })}
-                    />
-                  </FieldRow>
-                )}
+                emptyLabel="Esta columna aún no tiene enlaces."
               />
             </div>
           )}
@@ -106,30 +91,14 @@ export function FooterEditor({ value, onChange }: Props) {
           maxLength={200}
           hint="Si lo dejas vacío: «© año Nombre. Todos los derechos reservados.»"
         />
-        <RepeatableList
+        <LinkList
           items={value.legalLinks}
           onChange={(legalLinks) => set({ legalLinks })}
-          createItem={() => ({ label: "", url: "" })}
           max={6}
           itemLabel="enlace legal"
           addLabel="Agregar enlace legal"
           emptyLabel="Sin enlaces legales."
-          renderItem={(link, update) => (
-            <FieldRow>
-              <TextField
-                label="Texto"
-                value={link.label}
-                onChange={(label) => update({ label })}
-                maxLength={60}
-                placeholder="Privacidad"
-              />
-              <LinkField
-                label="Destino"
-                value={link.url}
-                onChange={(url) => update({ url })}
-              />
-            </FieldRow>
-          )}
+          textPlaceholder="Privacidad"
         />
       </Card>
     </div>

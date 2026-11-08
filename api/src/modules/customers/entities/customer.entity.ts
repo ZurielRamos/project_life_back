@@ -17,6 +17,7 @@ export type CustomerGender = 'female' | 'male' | 'other' | 'prefer_not';
  * de administración (entidad `User`): un token de cliente nunca da acceso al
  * panel.
  */
+@Index(['storeId', 'phone'], { unique: true })
 @Entity('customers')
 export class Customer {
   @PrimaryGeneratedColumn('uuid')
@@ -28,9 +29,15 @@ export class Customer {
    * Teléfono (celular colombiano). Es el IDENTIFICADOR de login y debe ser
    * único. Solo operamos en Colombia, así que no se guarda indicativo.
    */
-  @Index({ unique: true })
   @Column({ type: 'varchar' })
   phone: string;
+
+  /**
+   * Tienda a la que pertenece el cliente. El registro es POR TIENDA: el mismo
+   * celular en otra tienda es otro cliente.
+   */
+  @Column({ name: 'store_id', type: 'uuid' })
+  storeId: string;
 
   /**
    * Obsoleto: la autenticación ahora es por OTP de WhatsApp, no por

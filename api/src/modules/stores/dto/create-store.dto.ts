@@ -53,6 +53,11 @@ export class CreateStoreDto {
   @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'El color debe ser un hex #RRGGBB' })
   primaryColor?: string;
 
+  /** Segundo color de marca; cadena vacía = quitarlo. */
+  @ValidateIf((o: CreateStoreDto) => !!o.secondaryColor)
+  @Matches(/^#[0-9a-fA-F]{6}$/, { message: 'El color debe ser un hex #RRGGBB' })
+  secondaryColor?: string;
+
   /** Cadena vacía = quitar el correo. */
   @ValidateIf((o: CreateStoreDto) => !!o.contactEmail)
   @IsEmail()

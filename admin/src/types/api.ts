@@ -77,6 +77,18 @@ export interface DesignArea {
   heightPx: number
 }
 
+/**
+ * Área de impresión del producto con sus objetos inteligentes de diseño.
+ * Cada área toma los smart objects "dise" del primer mockup de su primera
+ * sesión anclada; cada objeto es un lienzo (`DesignArea`) independiente.
+ */
+export interface DesignPrintArea {
+  /** id del área de impresión, o "legacy" si las sesiones no están ancladas. */
+  id: string
+  name: string
+  objects: DesignArea[]
+}
+
 /** Capa de texto editable de una plantilla. */
 export interface TextLayer {
   uuid?: string
@@ -134,9 +146,21 @@ export interface PhotoSession {
   updatedAt: string
 }
 
-/** Ajuste/género del producto (enum fijo). */
-export type ProductFit = "men" | "women" | "unisex" | "kids" | "family"
+/** Clave (slug) de un ajuste administrable, p.ej. "men". */
+export type ProductFit = string
 export type MeasurementUnit = "cm" | "inch"
+
+/** Ajuste administrable del catálogo (Hombre, Mujer, ...). */
+export interface Fit {
+  id: string
+  /** Identificador estable que guardan los productos. */
+  key: ProductFit
+  /** Nombre visible. */
+  name: string
+  position: number
+  createdAt: string
+  updatedAt: string
+}
 
 /**
  * Categoría administrable que pertenece a un ajuste. Cada ajuste tiene su
@@ -278,7 +302,10 @@ export interface Product {
   /** Categoría del ajuste (pertenece a `fit`). */
   fitCategoryId: string | null
   fitCategory: FitCategory | null
+  /** Precio de venta en centavos. */
   basePriceCents: number | null
+  /** Precio de costo en centavos. */
+  costPriceCents: number | null
   currency: string | null
   sizeChartUnit: MeasurementUnit
   sizeChartColumns: string[]
@@ -320,6 +347,7 @@ export interface UpdateProductPayload {
   /** Categoría del ajuste; `null` la limpia. */
   fitCategoryId?: string | null
   basePriceCents?: number
+  costPriceCents?: number
   currency?: string
   sizeChartUnit?: MeasurementUnit
   sizeChartColumns?: string[]
@@ -486,6 +514,10 @@ export interface Design {
   status: DesignStatus
   /** Mensaje de error de la última generación fallida (si aplica). */
   errorMessage: string | null
+  /** Área de impresión principal (id de PrintArea), si se eligió. */
+  mainPrintAreaId?: string | null
+  /** true si el diseño tiene copyright (se puede ocultar de la tienda). */
+  hasCopyright?: boolean
   /** En GET /designs/:id viene con sus áreas de impresión. */
   product?: Product
   placements: DesignPlacement[]
@@ -511,6 +543,10 @@ export interface DesignStatusView {
 export interface GenerateDesignPayload {
   productId: string
   placements: PlacementInput[]
+  /** Área de impresión principal (id de PrintArea); sus renders van primero. */
+  mainPrintAreaId?: string
+  /** Si el diseño tiene copyright. */
+  hasCopyright: boolean
   /** Colores (ids del producto) a generar, en orden. */
   colorIds?: string[]
 }
@@ -671,6 +707,8 @@ interface StoreBase {
   logoUrl: string | null
   faviconUrl: string | null
   primaryColor: string | null
+  /** Segundo color de marca (final de los degradados). */
+  secondaryColor: string | null
   contactEmail: string | null
   phone: string | null
   address: string | null
@@ -722,6 +760,7 @@ export interface UpdateStorePayload {
   logoUrl?: string
   faviconUrl?: string
   primaryColor?: string
+  secondaryColor?: string
   contactEmail?: string
   phone?: string
   address?: string
@@ -754,8 +793,33 @@ export interface AnnouncementConfig {
   textColor: string
 }
 
+/**
+ * Disposición del encabezado:
+ * - logo-center: menú a la izquierda, logo al centro, iconos a la derecha.
+ * - logo-left: logo a la izquierda con el menú a su lado.
+ * - logo-left-menu-center: logo a la izquierda y menú centrado.
+ * - logo-right: menú a la izquierda, iconos y logo a la derecha.
+ * - stacked: logo centrado arriba y menú centrado debajo.
+ */
+export type HeaderLayout =
+  | "logo-center"
+  | "logo-left"
+  | "logo-left-menu-center"
+  | "logo-right"
+  | "stacked"
+
 export interface HeaderConfig {
   navItems: SiteLink[]
+  layout: HeaderLayout
+  /** transparent: sobre la portada y oscuro al bajar; dark/light: fijo. */
+  appearance: "transparent" | "dark" | "light"
+  logoSize: "sm" | "md" | "lg"
+  menuCase: "as-typed" | "uppercase"
+  sticky: boolean
+  showSearch: boolean
+  showFavorites: boolean
+  showAccount: boolean
+  mobileMenu: boolean
 }
 
 export interface FooterColumn {
@@ -889,4 +953,71 @@ export interface SiteConfig {
   contact: ContactPageConfig
   pages: SitePage[]
   integrations: IntegrationsConfig
+}
+
+// --- Notificaciones de la tienda (SMTP / WhatsApp) ---
+
+/** Ajustes de notificaciones tal como los devuelve la API (sin secretos). */
+export interface NotificationsView {
+  smtp: {
+    enabled: boolean
+    host: string
+    port: number
+    secure: boolean
+    username: string
+    fromName: string
+    fromEmail: string
+    /** true si hay una contraseña guardada; su valor nunca se devuelve. */
+    hasPassword: boolean
+  }
+  whatsapp: {
+    enabled: boolean
+    apiUrl: string
+    accountSlug: string
+    channelId: string
+    templateName: string
+    languageCode: string
+    /** true si hay un token guardado; su valor nunca se devuelve. */
+    hasApiToken: boolean
+    /** Endpoint resultante de la URL y el slug de la cuenta. */
+    endpoint: string | null
+  }
+  updatedAt: string | null
+}
+
+/** Cambios de SMTP. Los campos omitidos no se modifican. */
+export interface SmtpSettingsPayload {
+  enabled?: boolean
+  host?: string
+  port?: number
+  secure?: boolean
+  username?: string
+  /** Contraseña nueva. Omitida o vacía = se conserva la guardada. */
+  password?: string
+  clearPassword?: boolean
+  fromName?: string
+  fromEmail?: string
+}
+
+/** Cambios de WhatsApp. Los campos omitidos no se modifican. */
+export interface WhatsappSettingsPayload {
+  enabled?: boolean
+  apiUrl?: string
+  accountSlug?: string
+  channelId?: string
+  templateName?: string
+  languageCode?: string
+  /** Token nuevo. Omitido o vacío = se conserva el guardado. */
+  apiToken?: string
+  clearApiToken?: boolean
+}
+
+export interface UpdateNotificationsPayload {
+  smtp?: SmtpSettingsPayload
+  whatsapp?: WhatsappSettingsPayload
+}
+
+export interface NotificationTestResult {
+  ok: true
+  message: string
 }

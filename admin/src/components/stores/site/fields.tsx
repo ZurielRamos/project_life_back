@@ -2,7 +2,6 @@ import {
   useContext,
   useId,
   useRef,
-  useState,
   type ReactNode,
 } from "react"
 import {
@@ -16,12 +15,12 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { ApiError } from "@/lib/api"
-import { uploadStoreAsset } from "@/lib/stores-api"
 import { Button } from "@/components/ui/button"
+import { ColorPicker } from "@/components/ui/color-picker"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
+import { BANNER_RULES, useImageUpload } from "../use-image-upload"
 import { SiteEditorContext } from "./site-context"
 
 /** Destinos internos fijos que se ofrecen al escribir un enlace. */
@@ -83,16 +82,21 @@ export function FieldShell({
   htmlFor,
   children,
   className,
+  hideLabel,
 }: {
   label: string
   hint?: string
   htmlFor?: string
   children: ReactNode
   className?: string
+  /** Oculta la etiqueta visualmente (sigue disponible para lectores de pantalla). */
+  hideLabel?: boolean
 }) {
   return (
-    <div className={cn("grid gap-2", className)}>
-      <Label htmlFor={htmlFor}>{label}</Label>
+    <div className={cn("grid content-start gap-2", className)}>
+      <Label htmlFor={htmlFor} className={hideLabel ? "sr-only" : undefined}>
+        {label}
+      </Label>
       {children}
       {hint && <p className="text-xs text-neutral-500">{hint}</p>}
     </div>
@@ -111,6 +115,7 @@ export function TextField({
   maxLength,
   hint,
   className,
+  hideLabel,
 }: {
   label: string
   value: string
@@ -119,11 +124,18 @@ export function TextField({
   maxLength?: number
   hint?: string
   className?: string
+  hideLabel?: boolean
 }) {
   const id = useId()
   const { readOnly } = useContext(SiteEditorContext)
   return (
-    <FieldShell label={label} hint={hint} htmlFor={id} className={className}>
+    <FieldShell
+      label={label}
+      hint={hint}
+      htmlFor={id}
+      className={className}
+      hideLabel={hideLabel}
+    >
       <Input
         id={id}
         value={value}
@@ -300,35 +312,30 @@ export function ColorField({
   value,
   onChange,
   hint,
+  contrastWith,
+  contrastLabel,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   hint?: string
+  /** Color contra el que se mide el contraste (p. ej. el del texto). */
+  contrastWith?: string
+  contrastLabel?: string
 }) {
   const id = useId()
   const { readOnly } = useContext(SiteEditorContext)
-  const valid = /^#[0-9a-fA-F]{6}$/.test(value)
   return (
     <FieldShell label={label} hint={hint} htmlFor={id}>
-      <div className="flex items-center gap-2">
-        <input
-          type="color"
-          aria-label={`Elegir color: ${label}`}
-          value={valid ? value : "#000000"}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={readOnly}
-          className="size-9 shrink-0 cursor-pointer rounded-md border bg-transparent p-1 disabled:opacity-50"
-        />
-        <Input
-          id={id}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          maxLength={7}
-          placeholder="#000000"
-          disabled={readOnly}
-        />
-      </div>
+      <ColorPicker
+        id={id}
+        label={label}
+        value={value}
+        onChange={onChange}
+        disabled={readOnly}
+        contrastWith={contrastWith}
+        contrastLabel={contrastLabel}
+      />
     </FieldShell>
   )
 }
@@ -344,24 +351,34 @@ export function LinkField({
   onChange,
   hint,
   className,
+  hideLabel,
+  placeholder = "/tienda o https://…",
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   hint?: string
   className?: string
+  hideLabel?: boolean
+  placeholder?: string
 }) {
   const id = useId()
   const listId = `${id}-links`
   const { readOnly, pageSlugs } = useContext(SiteEditorContext)
   return (
-    <FieldShell label={label} hint={hint} htmlFor={id} className={className}>
+    <FieldShell
+      label={label}
+      hint={hint}
+      htmlFor={id}
+      className={className}
+      hideLabel={hideLabel}
+    >
       <Input
         id={id}
         list={listId}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="/tienda o https://…"
+        placeholder={placeholder}
         maxLength={2048}
         disabled={readOnly}
         autoComplete="off"
@@ -381,9 +398,6 @@ export function LinkField({
     </FieldShell>
   )
 }
-
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024
-const ACCEPTED = "image/png,image/jpeg,image/webp,image/gif,image/avif"
 
 /** Imagen con vista previa, subida a Cloudinary o URL manual. */
 export function ImageField({
@@ -405,38 +419,13 @@ export function ImageField({
   const id = useId()
   const { storeId, readOnly } = useContext(SiteEditorContext)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { upload, uploading, error } = useImageUpload(storeId)
 
   async function handleFile(file: File | undefined) {
     if (!file) return
-    setError(null)
-    if (!ACCEPTED.split(",").includes(file.type)) {
-      setError("Formato no admitido. Usa PNG, JPG, WEBP, GIF o AVIF.")
-      return
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      setError("La imagen supera los 8 MB.")
-      return
-    }
-    setUploading(true)
-    try {
-      const dataUri = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(String(reader.result))
-        reader.onerror = () => reject(new Error("No se pudo leer el archivo"))
-        reader.readAsDataURL(file)
-      })
-      const uploaded = await uploadStoreAsset(storeId, dataUri)
-      onChange(uploaded.url)
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "No se pudo subir la imagen."
-      )
-    } finally {
-      setUploading(false)
-      if (inputRef.current) inputRef.current.value = ""
-    }
+    const url = await upload(file, BANNER_RULES)
+    if (url) onChange(url)
+    if (inputRef.current) inputRef.current.value = ""
   }
 
   return (
@@ -469,7 +458,7 @@ export function ImageField({
             <input
               ref={inputRef}
               type="file"
-              accept={ACCEPTED}
+              accept={BANNER_RULES.mimes.join(",")}
               className="sr-only"
               aria-label={`Subir imagen: ${label}`}
               onChange={(e) => void handleFile(e.target.files?.[0])}
@@ -516,9 +505,108 @@ export function ImageField({
 // Listas
 // ---------------------------------------------------------------------------
 
+/** Subir, bajar y eliminar un elemento de una lista, en una sola fila. */
+export function ItemActions({
+  index,
+  count,
+  itemLabel,
+  onMove,
+  onRemove,
+}: {
+  index: number
+  count: number
+  /** Nombre accesible del elemento (p. ej. "enlace"). */
+  itemLabel: string
+  onMove: (delta: -1 | 1) => void
+  onRemove: () => void
+}) {
+  const { readOnly } = useContext(SiteEditorContext)
+  if (readOnly) return null
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8 text-neutral-500"
+        aria-label={`Subir ${itemLabel} ${index + 1}`}
+        disabled={index === 0}
+        onClick={() => onMove(-1)}
+      >
+        <ArrowUp className="size-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-8 text-neutral-500"
+        aria-label={`Bajar ${itemLabel} ${index + 1}`}
+        disabled={index === count - 1}
+        onClick={() => onMove(1)}
+      >
+        <ArrowDown className="size-4" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="text-destructive hover:text-destructive size-8"
+        aria-label={`Eliminar ${itemLabel} ${index + 1}`}
+        onClick={onRemove}
+      >
+        <Trash2 className="size-4" />
+      </Button>
+    </div>
+  )
+}
+
+/** Mueve un elemento de la lista una posición arriba o abajo. */
+function moved<T>(items: T[], index: number, delta: -1 | 1): T[] {
+  const target = index + delta
+  if (target < 0 || target >= items.length) return items
+  const next = [...items]
+  ;[next[index], next[target]] = [next[target], next[index]]
+  return next
+}
+
+/** Botón «Agregar» con el aviso de máximo. */
+function AddItem({
+  label,
+  count,
+  max,
+  onAdd,
+}: {
+  label: string
+  count: number
+  max: number
+  onAdd: () => void
+}) {
+  const { readOnly } = useContext(SiteEditorContext)
+  if (readOnly) return null
+  return (
+    <div className="flex items-center gap-3">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={count >= max}
+        onClick={onAdd}
+      >
+        <Plus className="size-4" />
+        {label}
+      </Button>
+      {count >= max && (
+        <span className="text-xs text-neutral-500">Máximo {max}</span>
+      )}
+    </div>
+  )
+}
+
 /**
- * Lista editable con alta, baja y reordenamiento. `renderItem` pinta los
- * campos de cada elemento y recibe `update` para modificarlo.
+ * Lista editable de elementos con varios campos (columnas, preguntas,
+ * páginas…). Cada elemento es una tarjeta con una barra superior que lleva
+ * su título y las acciones, para no gastar ancho en una columna lateral.
+ * Para listas de enlaces usa LinkList, que es mucho más compacta.
  */
 export function RepeatableList<T>({
   items,
@@ -529,32 +617,26 @@ export function RepeatableList<T>({
   addLabel,
   emptyLabel,
   itemLabel,
+  itemTitle,
 }: {
   items: T[]
   onChange: (items: T[]) => void
-  renderItem: (item: T, update: (patch: Partial<T>) => void, index: number) => ReactNode
+  renderItem: (
+    item: T,
+    update: (patch: Partial<T>) => void,
+    index: number
+  ) => ReactNode
   createItem: () => T
   max: number
   addLabel: string
   emptyLabel?: string
-  /** Nombre accesible de cada elemento (p. ej. "enlace"). */
+  /** Nombre accesible de cada elemento (p. ej. "pregunta"). */
   itemLabel: string
+  /** Título visible de cada elemento; por defecto «Pregunta 1», «Pregunta 2»… */
+  itemTitle?: (item: T, index: number) => string
 }) {
-  const { readOnly } = useContext(SiteEditorContext)
-
-  function update(index: number, patch: Partial<T>) {
+  const update = (index: number, patch: Partial<T>) =>
     onChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
-  }
-  function remove(index: number) {
-    onChange(items.filter((_, i) => i !== index))
-  }
-  function move(index: number, delta: -1 | 1) {
-    const target = index + delta
-    if (target < 0 || target >= items.length) return
-    const next = [...items]
-    ;[next[index], next[target]] = [next[target], next[index]]
-    onChange(next)
-  }
 
   return (
     <div className="flex flex-col gap-3">
@@ -564,70 +646,136 @@ export function RepeatableList<T>({
         </p>
       )}
       {items.map((item, index) => (
-        <div
-          key={index}
-          className="flex items-start gap-2 rounded-xl border bg-neutral-50/60 p-3"
-        >
-          <div className="min-w-0 flex-1">
+        <div key={index} className="rounded-xl border bg-white">
+          <div className="flex items-center justify-between gap-2 border-b bg-neutral-50 py-1 pr-1 pl-3">
+            <span className="min-w-0 truncate text-xs font-semibold tracking-wide text-neutral-500 uppercase">
+              {itemTitle?.(item, index) ||
+                `${itemLabel.charAt(0).toUpperCase()}${itemLabel.slice(1)} ${index + 1}`}
+            </span>
+            <ItemActions
+              index={index}
+              count={items.length}
+              itemLabel={itemLabel}
+              onMove={(delta) => onChange(moved(items, index, delta))}
+              onRemove={() => onChange(items.filter((_, i) => i !== index))}
+            />
+          </div>
+          <div className="p-3">
             {renderItem(item, (patch) => update(index, patch), index)}
           </div>
-          {!readOnly && (
-            <div className="flex shrink-0 flex-col gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                aria-label={`Subir ${itemLabel} ${index + 1}`}
-                disabled={index === 0}
-                onClick={() => move(index, -1)}
-              >
-                <ArrowUp className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-8"
-                aria-label={`Bajar ${itemLabel} ${index + 1}`}
-                disabled={index === items.length - 1}
-                onClick={() => move(index, 1)}
-              >
-                <ArrowDown className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="text-destructive hover:text-destructive size-8"
-                aria-label={`Eliminar ${itemLabel} ${index + 1}`}
-                onClick={() => remove(index)}
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-          )}
         </div>
       ))}
-      {!readOnly && (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={items.length >= max}
-            onClick={() => onChange([...items, createItem()])}
+      <AddItem
+        label={addLabel}
+        count={items.length}
+        max={max}
+        onAdd={() => onChange([...items, createItem()])}
+      />
+    </div>
+  )
+}
+
+/**
+ * Lista compacta de enlaces (texto + destino): una tabla con el encabezado
+ * escrito una sola vez y cada enlace en una fila de ~52 px, con las acciones
+ * en línea. Es la forma de editar menús, atajos y enlaces del pie.
+ */
+export function LinkList({
+  items,
+  onChange,
+  max,
+  addLabel,
+  emptyLabel,
+  itemLabel,
+  textLabel = "Texto",
+  textPlaceholder,
+  urlLabel = "Destino",
+  newItem = { label: "", url: "" },
+}: {
+  items: { label: string; url: string }[]
+  onChange: (items: { label: string; url: string }[]) => void
+  max: number
+  addLabel: string
+  emptyLabel?: string
+  /** Nombre accesible de cada fila (p. ej. "enlace"). */
+  itemLabel: string
+  textLabel?: string
+  textPlaceholder?: string
+  urlLabel?: string
+  /** Valores de una fila nueva. */
+  newItem?: { label: string; url: string }
+}) {
+  const { readOnly } = useContext(SiteEditorContext)
+  const update = (index: number, patch: Partial<{ label: string; url: string }>) =>
+    onChange(items.map((it, i) => (i === index ? { ...it, ...patch } : it)))
+  // Mismas columnas en el encabezado y en las filas.
+  const cols = cn(
+    "grid gap-2 sm:items-center",
+    readOnly
+      ? "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]"
+      : "sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_104px]"
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      {items.length === 0 ? (
+        emptyLabel && (
+          <p className="rounded-xl border border-dashed p-4 text-center text-sm text-neutral-500">
+            {emptyLabel}
+          </p>
+        )
+      ) : (
+        <div className="overflow-hidden rounded-xl border bg-white">
+          <div
+            className={cn(
+              cols,
+              "hidden border-b bg-neutral-50 px-3 py-2 text-xs font-semibold tracking-wide text-neutral-500 uppercase sm:grid"
+            )}
           >
-            <Plus className="size-4" />
-            {addLabel}
-          </Button>
-          {items.length >= max && (
-            <span className="ml-3 text-xs text-neutral-500">
-              Máximo {max}
-            </span>
-          )}
+            <span>{textLabel}</span>
+            <span>{urlLabel}</span>
+            {!readOnly && <span className="sr-only">Acciones</span>}
+          </div>
+          <ul className="divide-y">
+            {items.map((item, index) => (
+              <li key={index} className={cn(cols, "px-3 py-2 [&>*]:min-w-0")}>
+                <TextField
+                  label={`${textLabel} del ${itemLabel} ${index + 1}`}
+                  hideLabel
+                  value={item.label}
+                  onChange={(label) => update(index, { label })}
+                  placeholder={textPlaceholder ?? textLabel}
+                  maxLength={60}
+                />
+                <LinkField
+                  label={`${urlLabel} del ${itemLabel} ${index + 1}`}
+                  hideLabel
+                  value={item.url}
+                  onChange={(url) => update(index, { url })}
+                  placeholder={urlLabel}
+                />
+                <div className="-my-1 flex justify-end sm:my-0">
+                  <ItemActions
+                    index={index}
+                    count={items.length}
+                    itemLabel={itemLabel}
+                    onMove={(delta) => onChange(moved(items, index, delta))}
+                    onRemove={() =>
+                      onChange(items.filter((_, i) => i !== index))
+                    }
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
+      <AddItem
+        label={addLabel}
+        count={items.length}
+        max={max}
+        onAdd={() => onChange([...items, { ...newItem }])}
+      />
     </div>
   )
 }

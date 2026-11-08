@@ -45,6 +45,14 @@ export interface DesignSeoView {
   openGraph: Record<string, unknown> | null;
 }
 
+/** Fuente de diseño: un área de impresión y el mockup que define sus objetos. */
+interface DesignSource {
+  printAreaId: string | null;
+  printAreaName: string | null;
+  session: PhotoSession;
+  mockup: SessionMockup;
+}
+
 /** Resultado de una vista previa efímera (un render + SEO, sin persistir). */
 export interface PreviewResult {
   printAreaId: string;
@@ -127,21 +135,49 @@ export class DesignsService implements OnModuleInit {
       throw new BadRequestException('El diseño no tiene imágenes colocadas');
     }
 
-    // Las áreas son los smart objects "dise" del primer mockup de la primera
-    // sesión. Cada placement referencia uno por uuid (en el campo printAreaId).
-    const source = this.resolveSourceMockup(product);
-    if (!source) {
+    // Cada área de impresión tiene una fuente (sesión + mockup) cuyos smart
+    // objects "dise" son sus objetos inteligentes. Cada placement referencia
+    // uno por uuid (en el campo printAreaId).
+    const sources = this.resolveSources(product);
+    if (sources.length === 0) {
       throw new BadRequestException(
-        'La primera sesión del producto no tiene mockups para renderizar',
+        'El producto no tiene sesiones con mockups para renderizar',
       );
     }
-    const designNames = this.designSmartObjectNames(source.mockup);
+    const usedSources = new Set<DesignSource>();
     for (const p of dto.placements) {
-      if (!designNames.has(p.printAreaId)) {
+      const source = this.findSourceBySmartObject(sources, p.printAreaId);
+      if (!source) {
         throw new BadRequestException(
           'Una o más imágenes no corresponden a un área de diseño del mockup',
         );
       }
+      usedSources.add(source);
+    }
+
+    // Área principal: obligatoria si el producto tiene áreas ancladas, y debe
+    // tener imágenes (su render es la portada del diseño).
+    const anchored = sources.filter((s) => s.printAreaId);
+    let mainPrintAreaId: string | null = null;
+    if (anchored.length > 0) {
+      const main = anchored.find((s) => s.printAreaId === dto.mainPrintAreaId);
+      if (!main) {
+        throw new BadRequestException(
+          'Selecciona el área de impresión principal del diseño',
+        );
+      }
+      if (!usedSources.has(main)) {
+        throw new BadRequestException(
+          'El área principal debe tener al menos una imagen colocada',
+        );
+      }
+      mainPrintAreaId = main.printAreaId;
+      // El área principal se renderiza primero (portada y SEO).
+      sources.sort(
+        (a, b) =>
+          Number(b.printAreaId === mainPrintAreaId) -
+          Number(a.printAreaId === mainPrintAreaId),
+      );
     }
 
     // Colores a renderizar (en orden). Vacío => un render sin color.
@@ -151,35 +187,39 @@ export class DesignsService implements OnModuleInit {
         ? dto.colorIds.map((id) => colorById.get(id)).filter((c) => !!c)
         : [null];
 
-    // Un render por cada mockup de la sesión fuente × color. Todas las
-    // placements se aplican juntas; cada una va a su smart object por uuid.
-    const { session } = source;
-    const areaName = [...designNames.values()].join(', ');
+    // Por cada área de impresión con imágenes: un render por mockup de su
+    // sesión fuente × color. Cada render aplica solo las placements de esa
+    // área (cada una va a su smart object por uuid).
     const plannedRenders: Partial<DesignRender>[] = [];
     let pos = 0;
-    for (const mockup of session.mockups) {
-      for (const color of colorTargets) {
-        plannedRenders.push({
-          // printAreaId guarda el id de la sesión fuente (referencia estable
-          // para re-render; el mapeo real es por smart object en la placement).
-          printAreaId: session.id,
-          printAreaName: areaName,
-          sessionId: session.id,
-          sessionName: session.name,
-          sessionMockupId: mockup.id,
-          sudomockUuid: mockup.sudomockUuid,
-          colorId: color?.id ?? null,
-          colorName: color?.name ?? null,
-          colorHex: color?.hex ?? null,
-          status: 'pending',
-          position: pos++,
-        });
+    for (const source of sources) {
+      if (!usedSources.has(source)) continue;
+      const { session } = source;
+      const areaName = this.sourceAreaName(source);
+      for (const mockup of session.mockups) {
+        for (const color of colorTargets) {
+          plannedRenders.push({
+            // printAreaId guarda el id de la sesión fuente (referencia estable
+            // para re-render; el mapeo real es por smart object en la placement).
+            printAreaId: session.id,
+            printAreaName: areaName,
+            sessionId: session.id,
+            sessionName: session.name,
+            sessionMockupId: mockup.id,
+            sudomockUuid: mockup.sudomockUuid,
+            colorId: color?.id ?? null,
+            colorName: color?.name ?? null,
+            colorHex: color?.hex ?? null,
+            status: 'pending',
+            position: pos++,
+          });
+        }
       }
     }
 
     if (plannedRenders.length === 0) {
       throw new BadRequestException(
-        'No hay mockups en la primera sesión para renderizar',
+        'No hay mockups para renderizar las áreas con imágenes',
       );
     }
 
@@ -187,6 +227,8 @@ export class DesignsService implements OnModuleInit {
     const design = this.designsRepository.create({
       name: 'Generando…',
       productId: dto.productId,
+      mainPrintAreaId,
+      hasCopyright: dto.hasCopyright,
       code: await this.generateUniqueCode(),
       status: 'generating',
       placements: dto.placements.map((p, i) =>
@@ -249,23 +291,22 @@ export class DesignsService implements OnModuleInit {
       throw new BadRequestException('El producto no existe');
     }
 
-    // La fuente de áreas es el primer mockup de la primera sesión.
-    const source = this.resolveSourceMockup(product);
+    // dto.printAreaId es el uuid de un smart object; su fuente determina el
+    // área de impresión (y el mockup) a previsualizar.
+    const source = this.findSourceBySmartObject(
+      this.resolveSources(product),
+      dto.printAreaId,
+    );
     if (!source) {
-      throw new BadRequestException(
-        'La primera sesión del producto no tiene mockups',
-      );
-    }
-    const designNames = this.designSmartObjectNames(source.mockup);
-    if (!designNames.has(dto.printAreaId)) {
       throw new BadRequestException(
         'El área (smart object) no existe en el mockup',
       );
     }
+    const designNames = this.designSmartObjectNames(source.mockup);
 
-    // Placements del área a previsualizar (por uuid del smart object).
+    // Placements del área de impresión (todos sus objetos inteligentes).
     const placements = dto.placements
-      .filter((p) => p.printAreaId === dto.printAreaId)
+      .filter((p) => designNames.has(p.printAreaId))
       .map((p, i) =>
         this.placementsRepository.create({
           printAreaId: p.printAreaId,
@@ -625,6 +666,7 @@ export class DesignsService implements OnModuleInit {
   async update(id: string, dto: UpdateDesignDto): Promise<Design> {
     const design = await this.findOne(id);
     if (dto.name !== undefined) design.name = dto.name;
+    if (dto.hasCopyright !== undefined) design.hasCopyright = dto.hasCopyright;
     await this.designsRepository.save(design);
     return this.findOne(id);
   }
@@ -937,14 +979,12 @@ export class DesignsService implements OnModuleInit {
     const design = await this.findOne(id);
 
     if (dto.placements.length > 0 && design.product) {
-      // Valida contra los smart objects "dise" del mockup fuente.
-      const source = this.resolveSourceMockup(design.product);
-      const designNames = source
-        ? this.designSmartObjectNames(source.mockup)
-        : new Map<string, string>();
+      // Valida contra los smart objects "dise" de los mockups fuente de
+      // todas las áreas de impresión.
+      const sources = this.resolveSources(design.product);
       const invalid = dto.placements
         .map((p) => p.printAreaId)
-        .filter((uuid) => !designNames.has(uuid));
+        .filter((uuid) => !this.findSourceBySmartObject(sources, uuid));
       if (invalid.length > 0) {
         throw new BadRequestException(
           'Una o más imágenes no corresponden a un área de diseño del mockup',
@@ -998,10 +1038,14 @@ export class DesignsService implements OnModuleInit {
 
       // Todas las placements del diseño: cada una se mapea a su smart object
       // por uuid dentro de renderOne (no se filtra por área).
-      const placements = design.placements ?? [];
-      if (placements.length === 0) {
+      const allPlacements = design.placements ?? [];
+      if (allPlacements.length === 0) {
         throw new Error('El diseño no tiene imágenes colocadas');
       }
+      // Con varias áreas de impresión, cada render usa solo las placements
+      // de SU área: las que apuntan a smart objects del mockup fuente de la
+      // sesión del render. Si ninguna coincide (diseños antiguos), usa todas.
+      const placements = this.placementsForSession(design, render.sessionId);
 
       // Localiza el SessionMockup usado por este render.
       const mockup = this.findSessionMockup(design, render.sessionMockupId);
@@ -1107,31 +1151,47 @@ export class DesignsService implements OnModuleInit {
     // smart object de ESA sesión, así que renderizar en otra sesión de
     // distinto tamaño desubica y encoge el diseño. Solo si el diseño no tiene
     // renders previos (caso raro) se cae al resolvedor por defecto.
-    const prevSessionId = (design.renders ?? []).find(
-      (r) => !!r.sessionId,
-    )?.sessionId;
-    const prevSession = prevSessionId
-      ? (product.photoSessions ?? []).find((s) => s.id === prevSessionId)
-      : undefined;
-
-    let session: PhotoSession;
-    let sourceMockup: SessionMockup;
-    if (prevSession && (prevSession.mockups ?? []).length > 0) {
-      session = prevSession;
-      sourceMockup = [...prevSession.mockups].sort(
-        (a, b) => a.position - b.position,
-      )[0];
-    } else {
-      const source = this.resolveSourceMockup(product);
-      if (!source) {
+    // Con varias áreas de impresión se reutilizan todas las sesiones previas
+    // (una por área con imágenes).
+    const prevSessionIds = new Set(
+      (design.renders ?? []).map((r) => r.sessionId).filter((s) => !!s),
+    );
+    let regenSources: { session: PhotoSession; areaName: string }[] = (
+      product.photoSessions ?? []
+    )
+      .filter((s) => prevSessionIds.has(s.id) && (s.mockups ?? []).length > 0)
+      .map((s) => {
+        const src = this.resolveSources(product).find(
+          (x) => x.session.id === s.id,
+        );
+        const firstMockup = [...s.mockups].sort(
+          (a, b) => a.position - b.position,
+        )[0];
+        return {
+          session: s,
+          areaName: src
+            ? this.sourceAreaName(src)
+            : [...this.designSmartObjectNames(firstMockup).values()].join(', '),
+        };
+      });
+    if (regenSources.length === 0) {
+      const sources = this.resolveSources(product);
+      const used = sources.filter((src) =>
+        design.placements.some((p) =>
+          this.designSmartObjectNames(src.mockup).has(p.printAreaId),
+        ),
+      );
+      const chosen = used.length > 0 ? used : sources.slice(0, 1);
+      if (chosen.length === 0) {
         throw new BadRequestException(
-          'La primera sesión del producto no tiene mockups para renderizar',
+          'El producto no tiene sesiones con mockups para renderizar',
         );
       }
-      session = source.session;
-      sourceMockup = source.mockup;
+      regenSources = chosen.map((src) => ({
+        session: src.session,
+        areaName: this.sourceAreaName(src),
+      }));
     }
-    const designNames = this.designSmartObjectNames(sourceMockup);
 
     // Mantiene los colores que ya tenían renders (preserva selección previa).
     // Se toman directamente de los renders anteriores (id/nombre/hex), NO
@@ -1160,30 +1220,37 @@ export class DesignsService implements OnModuleInit {
     }
 
     // Un render por mockup de la sesión fuente × color (igual que generate).
-    const areaName = [...designNames.values()].join(', ');
+    // El área principal del diseño se renderiza primero (portada y SEO).
+    if (design.mainPrintAreaId) {
+      const isMain = (s: PhotoSession) =>
+        Number(s.printAreaId === design.mainPrintAreaId);
+      regenSources.sort((a, b) => isMain(b.session) - isMain(a.session));
+    }
     const planned: Partial<DesignRender>[] = [];
     let pos = 0;
-    for (const mockup of session.mockups) {
-      for (const color of colorTargets) {
-        planned.push({
-          designId: id,
-          printAreaId: session.id,
-          printAreaName: areaName,
-          sessionId: session.id,
-          sessionName: session.name,
-          sessionMockupId: mockup.id,
-          sudomockUuid: mockup.sudomockUuid,
-          colorId: color.id,
-          colorName: color.name,
-          colorHex: color.hex,
-          status: 'pending',
-          position: pos++,
-        });
+    for (const { session, areaName } of regenSources) {
+      for (const mockup of session.mockups) {
+        for (const color of colorTargets) {
+          planned.push({
+            designId: id,
+            printAreaId: session.id,
+            printAreaName: areaName,
+            sessionId: session.id,
+            sessionName: session.name,
+            sessionMockupId: mockup.id,
+            sudomockUuid: mockup.sudomockUuid,
+            colorId: color.id,
+            colorName: color.name,
+            colorHex: color.hex,
+            status: 'pending',
+            position: pos++,
+          });
+        }
       }
     }
     if (planned.length === 0) {
       throw new BadRequestException(
-        'No hay mockups en la primera sesión para renderizar',
+        'No hay mockups para renderizar',
       );
     }
 
@@ -1300,6 +1367,24 @@ export class DesignsService implements OnModuleInit {
       folder: 'kult/renders',
     });
     return uploaded.url;
+  }
+
+  /** Placements del diseño que pertenecen al área de la sesión indicada. */
+  private placementsForSession(
+    design: Design,
+    sessionId: string | null | undefined,
+  ): DesignPlacement[] {
+    const all = design.placements ?? [];
+    const session = sessionId
+      ? (design.product?.photoSessions ?? []).find((s) => s.id === sessionId)
+      : undefined;
+    const sourceMockup = session
+      ? [...(session.mockups ?? [])].sort((a, b) => a.position - b.position)[0]
+      : undefined;
+    if (!sourceMockup) return all;
+    const names = this.designSmartObjectNames(sourceMockup);
+    const own = all.filter((p) => names.has(p.printAreaId));
+    return own.length > 0 ? own : all;
   }
 
   /** Busca el SessionMockup por id dentro de las sesiones del producto. */
@@ -1575,25 +1660,59 @@ export class DesignsService implements OnModuleInit {
   }
 
   /**
-   * Primera sesión (por fecha de creación) del producto que tenga mockups,
-   * junto con su primer mockup (por posición). Es la fuente de las áreas de
-   * diseño: las placements referencian los smart objects "dise" de ESTE
-   * mockup. Devuelve null si no hay sesión con mockups.
+   * Fuentes de diseño del producto: una por área de impresión. Cada una es la
+   * primera sesión (por fecha) anclada a esa área que tenga mockups, con su
+   * primer mockup (por posición). Dentro de un área, los smart objects "dise"
+   * de ese mockup son los objetos inteligentes donde se colocan las imágenes.
+   * Si ninguna sesión está anclada a un área (productos antiguos), se usa la
+   * primera sesión con mockups como única fuente, sin área.
    */
-  private resolveSourceMockup(product: Product): {
-    session: PhotoSession;
-    mockup: SessionMockup;
-  } | null {
+  private resolveSources(product: Product): DesignSource[] {
     const sessions = [...(product.photoSessions ?? [])]
       .filter((s) => (s.mockups ?? []).length > 0)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-    const session = sessions[0];
-    if (!session) return null;
-    const mockup = [...session.mockups].sort(
+    const firstMockup = (session: PhotoSession): SessionMockup =>
+      [...session.mockups].sort((a, b) => a.position - b.position)[0];
+
+    const areas = [...(product.printAreas ?? [])].sort(
       (a, b) => a.position - b.position,
-    )[0];
-    if (!mockup) return null;
-    return { session, mockup };
+    );
+    const sources: DesignSource[] = [];
+    for (const area of areas) {
+      const session = sessions.find((s) => s.printAreaId === area.id);
+      if (!session) continue;
+      sources.push({
+        printAreaId: area.id,
+        printAreaName: area.name,
+        session,
+        mockup: firstMockup(session),
+      });
+    }
+    if (sources.length === 0 && sessions[0]) {
+      sources.push({
+        printAreaId: null,
+        printAreaName: null,
+        session: sessions[0],
+        mockup: firstMockup(sessions[0]),
+      });
+    }
+    return sources;
+  }
+
+  /** Fuente a la que pertenece un smart object (por uuid), si alguna. */
+  private findSourceBySmartObject(
+    sources: DesignSource[],
+    uuid: string,
+  ): DesignSource | undefined {
+    return sources.find((s) => this.designSmartObjectNames(s.mockup).has(uuid));
+  }
+
+  /** Nombre visible del área de una fuente. */
+  private sourceAreaName(source: DesignSource): string {
+    return (
+      source.printAreaName ??
+      [...this.designSmartObjectNames(source.mockup).values()].join(', ')
+    );
   }
 
   /** Mapa uuid -> nombre de los smart objects "dise" de un mockup. */

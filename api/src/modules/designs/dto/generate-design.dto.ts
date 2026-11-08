@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsNumber,
   IsObject,
   IsOptional,
@@ -79,6 +80,19 @@ export class GenerateDesignDto {
   @ValidateNested({ each: true })
   @Type(() => GeneratePlacementDto)
   placements: GeneratePlacementDto[];
+
+  /**
+   * Área de impresión principal del diseño (id de PrintArea). Obligatoria
+   * cuando el producto tiene áreas con sesiones ancladas; sus renders van
+   * primero (portada y SEO).
+   */
+  @IsOptional()
+  @IsUUID('4')
+  mainPrintAreaId?: string;
+
+  /** Si el diseño tiene copyright. Obligatorio: hay que elegirlo al crear. */
+  @IsBoolean()
+  hasCopyright: boolean;
 
   /**
    * Colores (ids del producto) para los que generar, EN ORDEN. El primero

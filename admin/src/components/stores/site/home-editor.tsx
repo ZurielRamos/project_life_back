@@ -32,6 +32,7 @@ import {
   FieldRow,
   ImageField,
   LinkField,
+  LinkList,
   NumberField,
   RepeatableList,
   SelectField,
@@ -409,29 +410,14 @@ function HeroFields({
         <p className="text-sm font-medium text-neutral-900">
           Atajos populares
         </p>
-        <RepeatableList
+        <LinkList
           items={section.chips}
           onChange={(chips) => set({ chips })}
-          createItem={() => ({ label: "", url: "/tienda?q=" })}
           max={8}
           itemLabel="atajo"
           addLabel="Agregar atajo"
           emptyLabel="Sin atajos."
-          renderItem={(chip, update) => (
-            <FieldRow>
-              <TextField
-                label="Texto"
-                value={chip.label}
-                onChange={(label) => update({ label })}
-                maxLength={60}
-              />
-              <LinkField
-                label="Destino"
-                value={chip.url}
-                onChange={(url) => update({ url })}
-              />
-            </FieldRow>
-          )}
+          newItem={{ label: "", url: "/tienda?q=" }}
         />
       </div>
       <FieldRow>
@@ -487,6 +473,7 @@ function CategoriesFields({
       })}
       max={8}
       itemLabel="categoría"
+      itemTitle={(tile) => tile.title}
       addLabel="Agregar categoría"
       emptyLabel="Sin categorías."
       renderItem={(tile, update) => (

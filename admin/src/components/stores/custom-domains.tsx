@@ -3,9 +3,11 @@ import {
   CheckCircle2,
   Clock,
   Copy,
+  ExternalLink,
   Loader2,
   Lock,
   RefreshCw,
+  Star,
   Trash2,
   XCircle,
 } from "lucide-react"
@@ -16,6 +18,7 @@ import {
   addStoreDomain,
   listStoreDomains,
   removeStoreDomain,
+  setPrimaryStoreDomain,
   verifyStoreDomain,
   type StoreDomain,
 } from "@/lib/stores-api"
@@ -53,10 +56,22 @@ function errorMessage(err: unknown): string {
 interface CustomDomainsProps {
   storeId: string
   canEdit: boolean
+  /** Subdominio de la plataforma ya guardado (<slug>.<base>); null si no hay dominio base. */
+  platformHost: string | null
+  /** Subdominio escrito pero aún sin guardar, si difiere del guardado. */
+  pendingPlatformHost?: string | null
+  /** Se llama tras cambiar el favorito o quitar un dominio (para refrescar la tienda). */
+  onChanged?: () => void
 }
 
 /** Dominios propios de la tienda: alta, registros DNS, estado y SSL. */
-export function CustomDomains({ storeId, canEdit }: CustomDomainsProps) {
+export function CustomDomains({
+  storeId,
+  canEdit,
+  platformHost,
+  pendingPlatformHost,
+  onChanged,
+}: CustomDomainsProps) {
   const [domains, setDomains] = useState<StoreDomain[] | null>(null)
   const [hostname, setHostname] = useState("")
   const [adding, setAdding] = useState(false)
@@ -113,6 +128,19 @@ export function CustomDomains({ storeId, canEdit }: CustomDomainsProps) {
     }
   }
 
+  async function handleSetPrimary(domainId: string | null) {
+    setBusyId(domainId ?? "platform")
+    setError(null)
+    try {
+      setDomains(await setPrimaryStoreDomain(storeId, domainId))
+      onChanged?.()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   async function handleRemove(domain: StoreDomain) {
     if (!window.confirm(`¿Quitar ${domain.hostname} de esta tienda?`)) return
     setBusyId(domain.id)
@@ -120,6 +148,7 @@ export function CustomDomains({ storeId, canEdit }: CustomDomainsProps) {
     try {
       await removeStoreDomain(storeId, domain.id)
       setDomains((prev) => prev?.filter((d) => d.id !== domain.id) ?? null)
+      onChanged?.()
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -168,18 +197,53 @@ export function CustomDomains({ storeId, canEdit }: CustomDomainsProps) {
 
       {domains === null ? (
         <p className="text-sm text-neutral-500">Cargando dominios…</p>
-      ) : domains.length === 0 ? (
-        <p className="text-sm text-neutral-500">
-          Esta tienda aún no tiene dominios propios.
-        </p>
       ) : (
         <ul className="grid gap-3">
+          {platformHost && (
+            <li className="grid gap-1 rounded-xl border bg-neutral-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">
+                  {platformHost}
+                </code>
+                <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs text-neutral-700">
+                  Subdominio de la plataforma
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                  <CheckCircle2 className="size-3" />
+                  Activo
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                  <Lock className="size-3" />
+                  SSL emitido
+                </span>
+                <FavoriteButton
+                  hostname={platformHost}
+                  favorite={!domains.some((d) => d.isPrimary && d.status === "active")}
+                  disabled={!canEdit || busyId === "platform"}
+                  onClick={() => void handleSetPrimary(null)}
+                />
+                <GoButton hostname={platformHost} />
+              </div>
+              <p className="text-xs text-neutral-500">
+                Se gestiona con el campo "Subdominio de la tienda" y no se puede
+                eliminar.
+                {pendingPlatformHost &&
+                  ` Al guardar pasará a ser ${pendingPlatformHost}.`}
+              </p>
+            </li>
+          )}
+          {domains.length === 0 && (
+            <li className="text-sm text-neutral-500">
+              Esta tienda aún no tiene dominios propios.
+            </li>
+          )}
           {domains.map((d) => (
             <DomainCard
               key={d.id}
               domain={d}
               canEdit={canEdit}
               busy={busyId === d.id}
+              onSetPrimary={() => void handleSetPrimary(d.id)}
               onVerify={() => void handleVerify(d.id)}
               onRemove={() => void handleRemove(d)}
             />
@@ -194,12 +258,14 @@ function DomainCard({
   domain,
   canEdit,
   busy,
+  onSetPrimary,
   onVerify,
   onRemove,
 }: {
   domain: StoreDomain
   canEdit: boolean
   busy: boolean
+  onSetPrimary: () => void
   onVerify: () => void
   onRemove: () => void
 }) {
@@ -232,6 +298,13 @@ function DomainCard({
           <Lock className="size-3" />
           {domain.sslStatus === "issued" ? "SSL emitido" : "SSL pendiente"}
         </span>
+        <FavoriteButton
+          hostname={domain.hostname}
+          favorite={domain.isPrimary && domain.status === "active"}
+          disabled={!canEdit || busy || domain.status !== "active"}
+          onClick={onSetPrimary}
+        />
+        {domain.status === "active" && <GoButton hostname={domain.hostname} />}
         {canEdit && (
           <>
             <Button
@@ -308,5 +381,59 @@ function DomainCard({
         <p className="text-xs text-red-600">{domain.lastError}</p>
       )}
     </li>
+  )
+}
+
+/** Estrella para marcar el dominio favorito (el que usa la tienda como URL principal). */
+function FavoriteButton({
+  hostname,
+  favorite,
+  disabled,
+  onClick,
+}: {
+  hostname: string
+  favorite: boolean
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="icon"
+      disabled={disabled || favorite}
+      aria-pressed={favorite}
+      aria-label={
+        favorite
+          ? `${hostname} es el dominio favorito`
+          : `Marcar ${hostname} como favorito`
+      }
+      title={favorite ? "Dominio favorito" : "Marcar como favorito"}
+      onClick={onClick}
+    >
+      <Star
+        className={cn(
+          "size-4",
+          favorite && "fill-amber-400 text-amber-500"
+        )}
+      />
+    </Button>
+  )
+}
+
+/** Abre el dominio en una pestaña nueva. */
+function GoButton({ hostname }: { hostname: string }) {
+  return (
+    <Button asChild variant="outline" size="sm">
+      <a
+        href={`https://${hostname}`}
+        target="_blank"
+        rel="noreferrer"
+        aria-label={`Ir a ${hostname}`}
+      >
+        <ExternalLink className="size-4" />
+        Ir
+      </a>
+    </Button>
   )
 }

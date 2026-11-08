@@ -12,7 +12,6 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { PRODUCT_FITS } from '../entities/product.entity';
 import { ModelInfoDto } from './model-info.dto';
 
 /**
@@ -52,10 +51,14 @@ export class UpdateProductDto {
   @MaxLength(1000)
   careInstructions?: string;
 
-  /** Ajuste del producto (enum fijo). Null/omitido no lo cambia. */
+  /**
+   * Clave de un ajuste existente (ver /fit-categories/fits). Se valida
+   * contra la tabla en el servicio. Omitido no lo cambia.
+   */
   @IsOptional()
-  @IsIn(PRODUCT_FITS)
-  fit?: (typeof PRODUCT_FITS)[number];
+  @IsString()
+  @MaxLength(60)
+  fit?: string;
 
   /**
    * Categoría del ajuste (ver /fit-categories). Debe pertenecer al `fit`
@@ -70,6 +73,12 @@ export class UpdateProductDto {
   @IsInt()
   @Min(0)
   basePriceCents?: number;
+
+  /** Precio de costo en centavos. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  costPriceCents?: number;
 
   @IsOptional()
   @IsString()

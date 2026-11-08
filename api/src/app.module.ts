@@ -90,7 +90,11 @@ import { UsersModule } from './modules/users/users.module';
         database: config.get<string>('database.database'),
         autoLoadEntities: true,
         synchronize: config.get<boolean>('database.synchronize'),
-        logging: config.get<boolean>('database.logging'),
+        // DB_LOGGING=true muestra todas las queries; en false solo errores y
+        // advertencias (así fallos como el de synchronize no se pierden).
+        logging: config.get<boolean>('database.logging')
+          ? true
+          : ['error', 'warn'],
         ssl: config.get<boolean>('database.ssl')
           ? { rejectUnauthorized: false }
           : false,

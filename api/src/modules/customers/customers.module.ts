@@ -11,6 +11,7 @@ import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 import { CustomGeneration } from './entities/custom-generation.entity';
 import { Customer } from './entities/customer.entity';
+import { StoresModule } from '../stores/stores.module';
 import { CustomerJwtStrategy } from './strategies/customer-jwt.strategy';
 import { WhatsappOtpService } from './whatsapp-otp.service';
 
@@ -18,6 +19,7 @@ import { WhatsappOtpService } from './whatsapp-otp.service';
   imports: [
     TypeOrmModule.forFeature([Customer, CustomGeneration]),
     PassportModule,
+    StoresModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

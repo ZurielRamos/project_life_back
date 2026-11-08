@@ -12,21 +12,35 @@ import {
 } from '@nestjs/common';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { Permissions } from '../auth/permissions.enum';
-import type { ProductFit } from '../products/entities/product.entity';
 import { CreateFitCategoryDto } from './dto/create-fit-category.dto';
+import { CreateFitDto } from './dto/create-fit.dto';
 import { ListFitCategoriesDto } from './dto/list-fit-categories.dto';
 import { FitCategory } from './entities/fit-category.entity';
+import { Fit } from './entities/fit.entity';
 import { FitCategoriesService } from './fit-categories.service';
 
 @Controller('fit-categories')
 export class FitCategoriesController {
   constructor(private readonly fitCategoriesService: FitCategoriesService) {}
 
-  /** Lista de ajustes válidos (enum fijo). */
+  /** Lista de ajustes administrables. */
   @Get('fits')
   @RequirePermissions(Permissions.FitCategoriesRead)
-  listFits(): ProductFit[] {
+  listFits(): Promise<Fit[]> {
     return this.fitCategoriesService.listFits();
+  }
+
+  @Post('fits')
+  @RequirePermissions(Permissions.FitCategoriesCreate)
+  createFit(@Body() dto: CreateFitDto): Promise<Fit> {
+    return this.fitCategoriesService.createFit(dto);
+  }
+
+  @Delete('fits/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @RequirePermissions(Permissions.FitCategoriesDelete)
+  async removeFit(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.fitCategoriesService.removeFit(id);
   }
 
   @Get()

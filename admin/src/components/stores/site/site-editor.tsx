@@ -173,6 +173,11 @@ export function SiteEditor({
           )}
           {section === "header" && (
             <HeaderEditor
+              brand={{
+                name: store.title || store.name,
+                logoUrl: store.logoUrl ?? "",
+                primaryColor: store.primaryColor ?? "",
+              }}
               value={draft.header}
               onChange={(v) => setKey("header", v)}
             />

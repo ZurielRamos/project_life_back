@@ -64,6 +64,10 @@ export class Store {
   @Column({ name: 'primary_color', type: 'varchar', nullable: true })
   primaryColor: string | null;
 
+  /** Segundo color de marca en hex (#RRGGBB): final de los degradados. */
+  @Column({ name: 'secondary_color', type: 'varchar', nullable: true })
+  secondaryColor: string | null;
+
   // --- Contacto ---
 
   @Column({ name: 'contact_email', type: 'varchar', nullable: true })

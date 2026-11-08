@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class UpdateDesignDto {
   @IsOptional()
@@ -6,4 +6,8 @@ export class UpdateDesignDto {
   @MinLength(1)
   @MaxLength(150)
   name?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  hasCopyright?: boolean;
 }
