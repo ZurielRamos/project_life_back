@@ -52,7 +52,7 @@ export function ImageUpload({
   }
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn("relative grid gap-2", className)}>
       <Label htmlFor={id}>{label}</Label>
 
       <input

@@ -493,7 +493,7 @@ export function ImageField({
             maxLength={2048}
             disabled={readOnly}
           />
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex flex-wrap items-center gap-2">
             <input
               ref={inputRef}
               type="file"
@@ -855,7 +855,7 @@ export function Segmented<T extends string>({
           <label
             key={o.value}
             className={cn(
-              "flex-1 cursor-pointer rounded-lg px-3 py-1.5 text-center text-sm font-medium whitespace-nowrap text-neutral-600 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400 sm:flex-none",
+              "relative flex-1 cursor-pointer rounded-lg px-3 py-1.5 text-center text-sm font-medium whitespace-nowrap text-neutral-600 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400 sm:flex-none",
               value === o.value
                 ? "bg-white text-neutral-900 shadow-sm"
                 : "hover:text-neutral-900"

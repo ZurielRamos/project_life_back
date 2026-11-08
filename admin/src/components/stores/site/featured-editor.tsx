@@ -438,7 +438,7 @@ function ModePicker({
           <label
             key={o.value}
             className={cn(
-              "flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400",
+              "relative flex cursor-pointer gap-3 rounded-xl border p-4 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400",
               selected
                 ? "border-neutral-900 bg-neutral-50 ring-1 ring-neutral-900"
                 : "hover:border-neutral-400"

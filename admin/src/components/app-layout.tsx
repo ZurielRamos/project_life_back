@@ -8,7 +8,7 @@ import { AppSidebar } from "@/components/app-sidebar"
  */
 export function AppLayout() {
   return (
-    <div className="flex h-svh w-full bg-neutral-950 p-2.5">
+    <div className="relative flex h-svh w-full overflow-hidden bg-neutral-950 p-2.5">
       <div className="flex w-full overflow-hidden rounded-3xl bg-neutral-950">
         <AppSidebar />
         <main className="flex min-w-0 flex-1 flex-col rounded-3xl bg-neutral-50">

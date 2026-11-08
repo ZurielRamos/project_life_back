@@ -309,7 +309,7 @@ export function HeaderEditor({ value, onChange, brand }: Props) {
                 <label
                   key={option.value}
                   className={cn(
-                    "flex cursor-pointer flex-col gap-2.5 rounded-xl border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400",
+                    "relative flex cursor-pointer flex-col gap-2.5 rounded-xl border p-3 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400",
                     selected
                       ? "border-neutral-900 ring-1 ring-neutral-900"
                       : "hover:border-neutral-400"
