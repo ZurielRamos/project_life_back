@@ -103,8 +103,11 @@ export function SiteEditor({
         .filter((p) => p.slug && p.title)
         .map((p) => ({ slug: p.slug, title: p.title })),
       readOnly: !canUpdate,
+      storeSlug: store.slug,
+      storeProductIds: store.productIds,
+      storeDesignIds: store.designIds,
     }),
-    [store.id, draft.pages, canUpdate]
+    [store.id, store.slug, store.productIds, store.designIds, draft.pages, canUpdate]
   )
 
   if (!meta) return null

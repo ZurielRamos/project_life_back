@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { isHexColor } from "@/lib/color"
 import type { HeaderConfig, HeaderLayout } from "@/types/api"
 
-import { Card, LinkList, SwitchField } from "./fields"
+import { Card, LinkList, Segmented, SwitchField } from "./fields"
 import { SiteEditorContext } from "./site-context"
 
 interface Props {
@@ -124,55 +124,6 @@ function LayoutThumb({ layout }: { layout: HeaderLayout }) {
         <span className="size-1.5 rounded-full bg-neutral-400" />
       </span>
     </div>
-  )
-}
-
-/** Grupo de opciones excluyentes con radios nativos (teclado y lector OK). */
-function Segmented<T extends string>({
-  label,
-  value,
-  onChange,
-  options,
-  hint,
-}: {
-  label: string
-  value: T
-  onChange: (value: T) => void
-  options: { value: T; label: string }[]
-  hint?: string
-}) {
-  const name = useId()
-  const { readOnly } = useContext(SiteEditorContext)
-  return (
-    <fieldset className="grid gap-2" disabled={readOnly}>
-      <legend className="mb-2 text-sm font-medium text-neutral-900">
-        {label}
-      </legend>
-      <div className="flex w-full flex-wrap gap-1 rounded-xl bg-neutral-100 p-1 sm:w-fit">
-        {options.map((o) => (
-          <label
-            key={o.value}
-            className={cn(
-              "flex-1 cursor-pointer rounded-lg px-3 py-1.5 text-center text-sm font-medium whitespace-nowrap text-neutral-600 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-neutral-400 sm:flex-none",
-              value === o.value
-                ? "bg-white text-neutral-900 shadow-sm"
-                : "hover:text-neutral-900"
-            )}
-          >
-            <input
-              type="radio"
-              name={name}
-              value={o.value}
-              checked={value === o.value}
-              onChange={() => onChange(o.value)}
-              className="sr-only"
-            />
-            {o.label}
-          </label>
-        ))}
-      </div>
-      {hint && <p className="text-xs text-neutral-500">{hint}</p>}
-    </fieldset>
   )
 }
 

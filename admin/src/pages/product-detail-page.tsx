@@ -15,13 +15,20 @@ import { listFits } from "@/lib/fit-categories-api"
 import {
   deleteProduct,
   getProduct,
+  getProductCompatibilities,
   removeSessionMockup,
 } from "@/lib/products-api"
-import type { Fit, PhotoSession, Product } from "@/types/api"
+import type {
+  CompatibilityLink,
+  Fit,
+  PhotoSession,
+  Product,
+} from "@/types/api"
 import { Button } from "@/components/ui/button"
 import { AppHeader } from "@/components/app-header"
 import { AddSessionDialog } from "@/components/products/add-session-dialog"
 import { EditAttributesDialog } from "@/components/products/edit-attributes-dialog"
+import { EditCompatibilitiesDialog } from "@/components/products/edit-compatibilities-dialog"
 import { EditColorsDialog } from "@/components/products/edit-colors-dialog"
 import { EditPrintAreasDialog } from "@/components/products/edit-print-areas-dialog"
 import { EditSizesDialog } from "@/components/products/edit-sizes-dialog"
@@ -58,6 +65,8 @@ export function ProductDetailPage() {
   const [editSizesOpen, setEditSizesOpen] = useState(false)
   const [editColorsOpen, setEditColorsOpen] = useState(false)
   const [editPrintAreasOpen, setEditPrintAreasOpen] = useState(false)
+  const [editCompatOpen, setEditCompatOpen] = useState(false)
+  const [compatLinks, setCompatLinks] = useState<CompatibilityLink[]>([])
 
   const load = useCallback(async () => {
     if (!id) return
@@ -78,6 +87,24 @@ export function ProductDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Compatibilidades de impresión. Se recargan si cambian las áreas: al
+  // reemplazar las áreas se recrean con ids nuevos y sus vínculos se pierden.
+  const printAreaKey = product?.printAreas.map((a) => a.id).join(",") ?? ""
+  useEffect(() => {
+    if (!id) return
+    let active = true
+    getProductCompatibilities(id)
+      .then((data) => {
+        if (active) setCompatLinks(data)
+      })
+      .catch(() => {
+        if (active) setCompatLinks([])
+      })
+    return () => {
+      active = false
+    }
+  }, [id, printAreaKey])
 
   // Nombres visibles de los ajustes (se refresca al cerrar el diálogo de edición).
   useEffect(() => {
@@ -399,6 +426,51 @@ export function ProductDetailPage() {
         )}
       </section>
 
+      {/* Compatibilidad de impresión */}
+      <section className="rounded-2xl border bg-white p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-neutral-900">
+              Compatibilidad de impresión
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Áreas donde también se puede imprimir el mismo diseño en otros
+              productos.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEditCompatOpen(true)}
+            disabled={product.printAreas.length === 0}
+          >
+            <Pencil className="size-4" />
+            Editar
+          </Button>
+        </div>
+        {compatLinks.length === 0 ? (
+          <p className="text-sm text-neutral-400">
+            Sin compatibilidades definidas.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1.5 text-sm">
+            {product.printAreas.flatMap((area) =>
+              compatLinks
+                .filter((l) => l.printAreaId === area.id)
+                .map((l) => (
+                  <li
+                    key={`${l.printAreaId}:${l.compatiblePrintAreaId}`}
+                    className="text-neutral-700"
+                  >
+                    <span className="font-medium">{area.name}</span>
+                    <span className="text-neutral-400"> ↔ </span>
+                    {l.compatibleProductName} · {l.compatibleAreaName}
+                  </li>
+                ))
+            )}
+          </ul>
+        )}
+      </section>
       {/* Sesiones */}
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -513,6 +585,13 @@ export function ProductDetailPage() {
         open={editColorsOpen}
         onOpenChange={setEditColorsOpen}
         onSaved={setProduct}
+      />
+      <EditCompatibilitiesDialog
+        product={product}
+        links={compatLinks}
+        open={editCompatOpen}
+        onOpenChange={setEditCompatOpen}
+        onSaved={setCompatLinks}
       />
       <EditPrintAreasDialog
         product={product}

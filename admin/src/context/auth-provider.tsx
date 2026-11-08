@@ -6,7 +6,12 @@ import {
   type ReactNode,
 } from "react"
 
-import { clearToken, getToken, setToken } from "@/lib/api"
+import {
+  UNAUTHORIZED_EVENT,
+  clearToken,
+  getToken,
+  setToken,
+} from "@/lib/api"
 import { getMe, login as loginRequest } from "@/lib/auth-api"
 import { AuthContext, type AuthContextValue } from "@/context/auth-context"
 import type { AuthResult, AuthenticatedUser, LoginPayload } from "@/types/api"
@@ -45,6 +50,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => {
       active = false
     }
+  }, [])
+
+  // Si cualquier petición recibe 401, limpiamos el usuario: ProtectedRoute
+  // redirige al login automáticamente.
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null)
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
   }, [])
 
   const signIn = useCallback(

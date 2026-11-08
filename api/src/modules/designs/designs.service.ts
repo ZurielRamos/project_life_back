@@ -17,10 +17,14 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service';
 import { FontsService } from '../fonts/fonts.service';
 import { SudomockService } from '../sudomock/sudomock.service';
 import { PhotoSession } from '../products/entities/photo-session.entity';
+import { PrintAreaCompatibility } from '../products/entities/print-area-compatibility.entity';
 import { Product } from '../products/entities/product.entity';
 import { SessionMockup } from '../products/entities/session-mockup.entity';
 import { DESIGN_QUEUE, type DesignJob } from './designs.queue';
-import { GenerateDesignDto } from './dto/generate-design.dto';
+import {
+  GenerateDesignDto,
+  type GeneratePlacementDto,
+} from './dto/generate-design.dto';
 import { PreviewDesignDto } from './dto/preview-design.dto';
 import { RegenerateSeoDto } from './dto/regenerate-seo.dto';
 import { RenderSvgDto, RenderSvgFieldDto } from './dto/render-svg.dto';
@@ -51,6 +55,19 @@ interface DesignSource {
   printAreaName: string | null;
   session: PhotoSession;
   mockup: SessionMockup;
+}
+
+/** Color objetivo de un render (null = sin color). */
+type ColorTarget = { id: string; name: string; hex: string } | null;
+
+/** Diseño ya validado y listo para persistir (uno por producto). */
+interface DesignDraft {
+  productId: string;
+  mainPrintAreaId: string | null;
+  sources: DesignSource[];
+  usedSources: Set<DesignSource>;
+  placements: GeneratePlacementDto[];
+  colorTargets: ColorTarget[];
 }
 
 /** Resultado de una vista previa efímera (un render + SEO, sin persistir). */
@@ -101,6 +118,8 @@ export class DesignsService implements OnModuleInit {
     private readonly seoRepository: Repository<DesignSeo>,
     @InjectRepository(DesignRender)
     private readonly rendersRepository: Repository<DesignRender>,
+    @InjectRepository(PrintAreaCompatibility)
+    private readonly compatibilityRepository: Repository<PrintAreaCompatibility>,
     @InjectQueue(DESIGN_QUEUE)
     private readonly designQueue: Queue<DesignJob>,
     private readonly dataSource: DataSource,
@@ -182,22 +201,72 @@ export class DesignsService implements OnModuleInit {
 
     // Colores a renderizar (en orden). Vacío => un render sin color.
     const colorById = new Map((product.colors ?? []).map((c) => [c.id, c]));
-    const colorTargets =
+    const colorTargets: ColorTarget[] =
       dto.colorIds && dto.colorIds.length > 0
-        ? dto.colorIds.map((id) => colorById.get(id)).filter((c) => !!c)
+        ? dto.colorIds
+            .map((id) => colorById.get(id))
+            .filter((c): c is NonNullable<typeof c> => !!c)
         : [null];
 
-    // Por cada área de impresión con imágenes: un render por mockup de su
-    // sesión fuente × color. Cada render aplica solo las placements de esa
-    // área (cada una va a su smart object por uuid).
+    const drafts: DesignDraft[] = [
+      {
+        productId: dto.productId,
+        mainPrintAreaId,
+        sources,
+        usedSources,
+        placements: dto.placements,
+        colorTargets,
+      },
+    ];
+
+    // Productos compatibles: se valida y mapea todo ANTES de guardar nada,
+    // para que un fallo no deje diseños a medias.
+    const targets = new Map(
+      (dto.compatibleProducts ?? [])
+        .filter((t) => t.productId !== dto.productId)
+        .map((t) => [t.productId, t]),
+    );
+    for (const target of targets.values()) {
+      drafts.push(
+        await this.buildCompatibleDraft(
+          { sources, mainPrintAreaId, placements: dto.placements, colorTargets },
+          target.productId,
+          target.colorIds,
+        ),
+      );
+    }
+
+    const created: Design[] = [];
+    for (const draft of drafts) {
+      created.push(await this.persistDraft(draft, dto.hasCopyright));
+    }
+    return this.findOne(created[0].id);
+  }
+
+  /**
+   * Crea el diseño (y sus renders pendientes) de un borrador y lo encola.
+   * Por cada área de impresión con imágenes: un render por mockup de su
+   * sesión fuente × color; cada render aplica solo las placements de esa
+   * área (cada una va a su smart object por uuid). El área principal va
+   * primero (portada y SEO).
+   */
+  private async persistDraft(
+    draft: DesignDraft,
+    hasCopyright: boolean,
+  ): Promise<Design> {
+    const ordered = [...draft.sources].sort(
+      (a, b) =>
+        Number(b.printAreaId === draft.mainPrintAreaId) -
+        Number(a.printAreaId === draft.mainPrintAreaId),
+    );
     const plannedRenders: Partial<DesignRender>[] = [];
     let pos = 0;
-    for (const source of sources) {
-      if (!usedSources.has(source)) continue;
+    for (const source of ordered) {
+      if (!draft.usedSources.has(source)) continue;
       const { session } = source;
       const areaName = this.sourceAreaName(source);
       for (const mockup of session.mockups) {
-        for (const color of colorTargets) {
+        for (const color of draft.colorTargets) {
           plannedRenders.push({
             // printAreaId guarda el id de la sesión fuente (referencia estable
             // para re-render; el mapeo real es por smart object en la placement).
@@ -223,15 +292,14 @@ export class DesignsService implements OnModuleInit {
       );
     }
 
-    // Crea el diseño con placements y renders pendientes en una transacción.
     const design = this.designsRepository.create({
       name: 'Generando…',
-      productId: dto.productId,
-      mainPrintAreaId,
-      hasCopyright: dto.hasCopyright,
+      productId: draft.productId,
+      mainPrintAreaId: draft.mainPrintAreaId,
+      hasCopyright,
       code: await this.generateUniqueCode(),
       status: 'generating',
-      placements: dto.placements.map((p, i) =>
+      placements: draft.placements.map((p, i) =>
         this.placementsRepository.create({
           printAreaId: p.printAreaId,
           imageUrl: p.imageUrl,
@@ -253,7 +321,174 @@ export class DesignsService implements OnModuleInit {
     const saved = await this.designsRepository.save(design);
 
     await this.enqueueRenders(saved.id);
-    return this.findOne(saved.id);
+    return saved;
+  }
+
+  /**
+   * Traslada un diseño ya validado a otro producto compatible. Cada área del
+   * producto origen se vincula (PrintAreaCompatibility) con un área del
+   * destino; cada objeto inteligente se empareja por posición dentro del
+   * área. La geometría se reescala de forma uniforme (sin deformar) y se
+   * centra en el objeto destino. Los colores se emparejan por nombre o hex.
+   */
+  private async buildCompatibleDraft(
+    origin: {
+      sources: DesignSource[];
+      mainPrintAreaId: string | null;
+      placements: GeneratePlacementDto[];
+      colorTargets: ColorTarget[];
+    },
+    targetProductId: string,
+    colorIds?: string[],
+  ): Promise<DesignDraft> {
+    const target = await this.productsRepository.findOne({
+      where: { id: targetProductId },
+      relations: {
+        printAreas: true,
+        colors: true,
+        photoSessions: { mockups: true },
+      },
+    });
+    if (!target) {
+      throw new BadRequestException('Un producto compatible no existe');
+    }
+    if (!origin.mainPrintAreaId) {
+      throw new BadRequestException(
+        'El producto base no tiene áreas de impresión ancladas: no se puede replicar a otros productos',
+      );
+    }
+
+    // Área origen -> área destino (primer vínculo por orden del destino).
+    const originAreaIds = origin.sources
+      .map((s) => s.printAreaId)
+      .filter((id): id is string => !!id);
+    const links = await this.compatibilityRepository.find({
+      where: { printAreaId: In(originAreaIds) },
+      relations: { compatiblePrintArea: true },
+    });
+    const areaMap = new Map<string, string>();
+    for (const link of links
+      .filter((l) => l.compatiblePrintArea.productId === target.id)
+      .sort(
+        (a, b) =>
+          a.compatiblePrintArea.position - b.compatiblePrintArea.position,
+      )) {
+      if (!areaMap.has(link.printAreaId)) {
+        areaMap.set(link.printAreaId, link.compatiblePrintAreaId);
+      }
+    }
+
+    const targetSources = this.resolveSources(target);
+    const targetSourceByArea = new Map(
+      targetSources
+        .filter((s) => s.printAreaId)
+        .map((s) => [s.printAreaId as string, s]),
+    );
+
+    const mainTargetArea = areaMap.get(origin.mainPrintAreaId);
+    if (!mainTargetArea || !targetSourceByArea.has(mainTargetArea)) {
+      throw new BadRequestException(
+        `"${target.name}" no es compatible con el área principal (o no tiene una sesión con mockups anclada al área compatible)`,
+      );
+    }
+
+    const placements: GeneratePlacementDto[] = [];
+    const usedSources = new Set<DesignSource>();
+    for (const p of origin.placements) {
+      const fromSource = this.findSourceBySmartObject(
+        origin.sources,
+        p.printAreaId,
+      );
+      const toArea = fromSource?.printAreaId
+        ? areaMap.get(fromSource.printAreaId)
+        : undefined;
+      const toSource = toArea ? targetSourceByArea.get(toArea) : undefined;
+      if (!fromSource || !toSource) continue; // área sin equivalente: se omite
+
+      const fromObjects = (fromSource.mockup.smartObjects ?? []) as SmartObject[];
+      const fromDesign = this.findSmartObjects(fromObjects, 'dise');
+      const toDesign = this.findSmartObjects(
+        (toSource.mockup.smartObjects ?? []) as SmartObject[],
+        'dise',
+      );
+      const index = fromDesign.findIndex((so) => so.uuid === p.printAreaId);
+      const toSo = toDesign[index] ?? toDesign[toDesign.length - 1];
+      if (!toSo) continue;
+
+      // Tamaño del lienzo donde se autoró vs. tamaño del objeto destino.
+      const fromSize = fromDesign[index]?.size;
+      const aw = p.authorAreaWidthPx ?? fromSize?.width;
+      const ah = p.authorAreaHeightPx ?? fromSize?.height;
+      const tw = toSo.size?.width;
+      const th = toSo.size?.height;
+      let mapped: GeneratePlacementDto;
+      if (aw && ah && tw && th) {
+        const scale = Math.min(tw / aw, th / ah);
+        const offsetX = (tw - aw * scale) / 2;
+        const offsetY = (th - ah * scale) / 2;
+        mapped = {
+          ...p,
+          printAreaId: toSo.uuid,
+          xMm: offsetX + p.xMm * scale,
+          yMm: offsetY + p.yMm * scale,
+          widthMm: p.widthMm * scale,
+          heightMm: p.heightMm * scale,
+          authorAreaWidthPx: tw,
+          authorAreaHeightPx: th,
+        };
+      } else {
+        mapped = { ...p, printAreaId: toSo.uuid };
+      }
+      placements.push(mapped);
+      usedSources.add(toSource);
+    }
+
+    const mainSource = targetSourceByArea.get(mainTargetArea)!;
+    if (!usedSources.has(mainSource)) {
+      throw new BadRequestException(
+        `"${target.name}": el área principal no tiene imágenes tras la conversión`,
+      );
+    }
+
+    // Colores: los elegidos para el destino (en orden) o, si no se indicaron,
+    // emparejados por nombre u hex con los del producto base.
+    const targetColors = target.colors ?? [];
+    const colorTargets: ColorTarget[] = [];
+    const seen = new Set<string>();
+    if (colorIds !== undefined) {
+      const byId = new Map(targetColors.map((c) => [c.id, c]));
+      for (const id of colorIds) {
+        const color = byId.get(id);
+        if (!color) {
+          throw new BadRequestException(
+            `Un color no pertenece a "${target.name}"`,
+          );
+        }
+        colorTargets.push(color);
+      }
+    }
+    for (const c of colorIds !== undefined ? [] : origin.colorTargets) {
+      if (!c) continue;
+      const match = targetColors.find(
+        (t) =>
+          t.name.trim().toLowerCase() === c.name.trim().toLowerCase() ||
+          t.hex.toLowerCase() === c.hex.toLowerCase(),
+      );
+      if (match && !seen.has(match.id)) {
+        seen.add(match.id);
+        colorTargets.push(match);
+      }
+    }
+    if (colorTargets.length === 0) colorTargets.push(null);
+
+    return {
+      productId: target.id,
+      mainPrintAreaId: mainTargetArea,
+      sources: targetSources,
+      usedSources,
+      placements,
+      colorTargets,
+    };
   }
 
   /** Encola un job por cada render pendiente + el job de finalización. */

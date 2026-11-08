@@ -21,6 +21,16 @@ export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
 }
 
+/** Evento global que se emite cuando la API responde 401 con una sesión activa. */
+export const UNAUTHORIZED_EVENT = "inkttex.admin.unauthorized"
+
+/** Limpia el token y avisa a la app para que redirija al login. */
+export function notifyUnauthorized(): void {
+  if (!getToken()) return
+  clearToken()
+  window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+}
+
 /** Payload de error que puede devolver NestJS. */
 interface ApiErrorBody {
   message?: string | string[]
@@ -78,6 +88,12 @@ export async function apiFetch<T = unknown>(
     .get("content-type")
     ?.includes("application/json")
   const data: unknown = isJson ? await response.json() : null
+
+  // Sesión vencida o token inválido: cerramos sesión y vamos al login.
+  // Se omite si no había token (p. ej. credenciales erróneas en el login).
+  if (response.status === 401 && token) {
+    notifyUnauthorized()
+  }
 
   if (!response.ok) {
     const errorBody = (data ?? {}) as ApiErrorBody

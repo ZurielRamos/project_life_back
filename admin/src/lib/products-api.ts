@@ -1,6 +1,8 @@
 // Llamadas al módulo de productos de la API.
 import { apiFetch } from "@/lib/api"
 import type {
+  CompatibilityLink,
+  CompatibilityOption,
   CreateProductPayload,
   ImportSessionMockupsPayload,
   ListRemoteParams,
@@ -10,6 +12,7 @@ import type {
   ProductSummary,
   RemoteSudomockListResult,
   ReorderMockupsPayload,
+  SetCompatibilitiesPayload,
   SetColorsPayload,
   SetPrintAreasPayload,
   SetSizesPayload,
@@ -80,6 +83,33 @@ export function setProductPrintAreas(
   body: SetPrintAreasPayload
 ): Promise<Product> {
   return apiFetch<Product>(`/products/${id}/print-areas`, {
+    method: "PUT",
+    body,
+  })
+}
+
+/** Compatibilidades de las áreas del producto con otros productos. */
+export function getProductCompatibilities(
+  id: string
+): Promise<CompatibilityLink[]> {
+  return apiFetch<CompatibilityLink[]>(`/products/${id}/compatibilities`)
+}
+
+/** Otros productos (con áreas) con los que se puede vincular. */
+export function getCompatibilityOptions(
+  id: string
+): Promise<CompatibilityOption[]> {
+  return apiFetch<CompatibilityOption[]>(
+    `/products/${id}/compatibility-options`
+  )
+}
+
+/** Reemplaza por completo las compatibilidades del producto. */
+export function setProductCompatibilities(
+  id: string,
+  body: SetCompatibilitiesPayload
+): Promise<CompatibilityLink[]> {
+  return apiFetch<CompatibilityLink[]>(`/products/${id}/compatibilities`, {
     method: "PUT",
     body,
   })

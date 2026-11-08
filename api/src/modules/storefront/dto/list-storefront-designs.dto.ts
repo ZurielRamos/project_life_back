@@ -1,4 +1,23 @@
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+
+export const STOREFRONT_SORTS = [
+  'newest',
+  'oldest',
+  'price-asc',
+  'price-desc',
+  'random',
+] as const;
+export type StorefrontSort = (typeof STOREFRONT_SORTS)[number];
 
 /**
  * Filtros de la tienda pública. `fit` es la clave de un ajuste
@@ -24,6 +43,27 @@ export class ListStorefrontDesignsDto {
   @IsOptional()
   @IsString()
   q?: string;
+
+  /** Producto base: solo diseños sobre ese producto. */
+  @IsOptional()
+  @IsUUID('4')
+  product?: string;
+
+  /**
+   * Selección manual: ids de diseños separados por coma (máx. 24). Se
+   * devuelven en ese mismo orden.
+   */
+  @IsOptional()
+  @Matches(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(,[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}){0,23}$/i,
+    { message: 'ids debe ser una lista de hasta 24 ids separados por coma' },
+  )
+  ids?: string;
+
+  /** Orden del resultado (por defecto, los más recientes primero). */
+  @IsOptional()
+  @IsIn(STOREFRONT_SORTS)
+  sort?: StorefrontSort;
 
   @IsOptional()
   @IsInt()

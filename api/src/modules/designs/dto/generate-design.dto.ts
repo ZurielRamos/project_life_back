@@ -68,6 +68,22 @@ export class GeneratePlacementDto {
   fieldValues?: Record<string, string>;
 }
 
+/** Producto compatible al que replicar el diseño, con sus propios colores. */
+export class CompatibleTargetDto {
+  @IsUUID('4')
+  productId: string;
+
+  /**
+   * Colores (ids del producto destino) a generar, EN ORDEN. Si se omite se
+   * emparejan por nombre/hex con los del producto base; vacío = sin color.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  colorIds?: string[];
+}
+
 /**
  * Crea un diseño y encola la generación de renders. El diseño se crea en
  * estado "generating"; los renders se procesan en segundo plano.
@@ -89,6 +105,17 @@ export class GenerateDesignDto {
   @IsOptional()
   @IsUUID('4')
   mainPrintAreaId?: string;
+
+  /**
+   * Otros productos para los que crear el mismo diseño a la vez. Deben ser
+   * compatibles (vínculo entre áreas de impresión) con el área principal.
+   * Se crea un diseño independiente por cada producto.
+   */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CompatibleTargetDto)
+  compatibleProducts?: CompatibleTargetDto[];
 
   /** Si el diseño tiene copyright. Obligatorio: hay que elegirlo al crear. */
   @IsBoolean()

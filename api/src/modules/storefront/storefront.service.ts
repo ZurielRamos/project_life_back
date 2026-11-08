@@ -6,7 +6,10 @@ import { AiService } from '../ai/ai.service';
 import { Design } from '../designs/entities/design.entity';
 import { DesignRender } from '../designs/entities/design-render.entity';
 import type { ProductFit } from '../products/entities/product.entity';
-import { ListStorefrontDesignsDto } from './dto/list-storefront-designs.dto';
+import {
+  ListStorefrontDesignsDto,
+  type StorefrontSort,
+} from './dto/list-storefront-designs.dto';
 import { SearchStorefrontDesignsDto } from './dto/search-storefront-designs.dto';
 import { StoresService } from '../stores/stores.service';
 
@@ -227,12 +230,9 @@ export class StorefrontService {
       .createQueryBuilder('design')
       .leftJoinAndSelect('design.product', 'product')
       .leftJoinAndSelect('design.seo', 'seo')
-      .leftJoinAndSelect(
-        'design.renders',
-        'render',
-        'render.status = :done',
-        { done: 'done' },
-      )
+      .leftJoinAndSelect('design.renders', 'render', 'render.status = :done', {
+        done: 'done',
+      })
       .where('design.status = :ready', { ready: 'ready' });
 
     if (this.hideCopyrighted()) {
@@ -255,14 +255,28 @@ export class StorefrontService {
         { q: `%${query.q}%`, code: query.q.trim() },
       );
     }
+    if (query.product) {
+      qb.andWhere('product.id = :product', { product: query.product });
+    }
+    // Selección manual: solo esos diseños (sin salir del alcance de la tienda).
+    const ids = query.ids
+      ? [...new Set(query.ids.toLowerCase().split(','))]
+      : null;
+    if (ids) {
+      qb.andWhere('design.id IN (:...ids)', { ids });
+    }
 
-    qb.orderBy('design.created_at', 'DESC');
+    qb.orderBy('design.created_at', query.sort === 'oldest' ? 'ASC' : 'DESC');
 
     const designs = await qb.getMany();
     const mapped = designs.map((d) => this.toStorefrontProduct(d));
 
     // Solo productos con al menos una imagen lista.
-    const withImage = mapped.filter((p) => p.cover !== null);
+    const withImage = this.sortProducts(
+      mapped.filter((p) => p.cover !== null),
+      query.sort,
+      ids,
+    );
 
     return {
       items: withImage.slice(offset, offset + limit),
@@ -270,6 +284,40 @@ export class StorefrontService {
       limit,
       offset,
     };
+  }
+
+  /**
+   * Orden en memoria de los productos ya filtrados. La selección manual
+   * respeta el orden de `ids`; los precios nulos van al final.
+   */
+  private sortProducts(
+    items: StorefrontProduct[],
+    sort: StorefrontSort | undefined,
+    ids: string[] | null,
+  ): StorefrontProduct[] {
+    if (ids) {
+      const pos = new Map(ids.map((id, i) => [id, i]));
+      return [...items].sort(
+        (a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0),
+      );
+    }
+    if (sort === 'price-asc' || sort === 'price-desc') {
+      const dir = sort === 'price-asc' ? 1 : -1;
+      return [...items].sort((a, b) => {
+        if (a.priceCents == null) return b.priceCents == null ? 0 : 1;
+        if (b.priceCents == null) return -1;
+        return (a.priceCents - b.priceCents) * dir;
+      });
+    }
+    if (sort === 'random') {
+      const out = [...items];
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+      }
+      return out;
+    }
+    return items;
   }
 
   /** Detalle de un producto de tienda por slug SEO. */
@@ -354,7 +402,8 @@ export class StorefrontService {
       code: design.code ?? null,
       name: design.seo?.title ?? design.name,
       slug: design.seo?.slug ?? null,
-      description: design.seo?.metaDescription ?? design.seo?.description ?? null,
+      description:
+        design.seo?.metaDescription ?? design.seo?.description ?? null,
       fit: product?.fit ?? null,
       category: product?.category ?? null,
       priceCents: product?.basePriceCents ?? null,

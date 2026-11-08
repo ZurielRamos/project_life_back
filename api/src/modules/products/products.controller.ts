@@ -19,12 +19,18 @@ import { ImportSessionMockupsDto } from './dto/import-session-mockups.dto';
 import { ListRemoteMockupsDto } from './dto/list-remote-mockups.dto';
 import { PhotoSessionInputDto } from './dto/photo-session.dto';
 import { ReorderMockupsDto } from './dto/reorder-mockups.dto';
+import { SetCompatibilitiesDto } from './dto/set-compatibilities.dto';
 import { SetColorsDto } from './dto/set-colors.dto';
 import { SetPrintAreasDto } from './dto/set-print-areas.dto';
 import { SetSizesDto } from './dto/set-sizes.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PhotoSession } from './entities/photo-session.entity';
 import { Product } from './entities/product.entity';
+import {
+  CompatibilityLinkView,
+  CompatibilityOption,
+  PrintAreaCompatibilityService,
+} from './print-area-compatibility.service';
 import {
   ProductSummary,
   ProductsService,
@@ -33,7 +39,10 @@ import {
 
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly compatibilityService: PrintAreaCompatibilityService,
+  ) {}
 
   // --- Catálogo remoto (SudoMock) ---
 
@@ -119,6 +128,36 @@ export class ProductsController {
     @Body() dto: SetPrintAreasDto,
   ): Promise<Product> {
     return this.productsService.setPrintAreas(id, dto);
+  }
+
+  // --- Compatibilidad de impresión entre productos ---
+
+  /** Vínculos de las áreas del producto con áreas de otros productos. */
+  @Get(':id/compatibilities')
+  @RequirePermissions(Permissions.ProductsRead)
+  listCompatibilities(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CompatibilityLinkView[]> {
+    return this.compatibilityService.list(id);
+  }
+
+  /** Otros productos (con áreas) con los que se puede vincular. */
+  @Get(':id/compatibility-options')
+  @RequirePermissions(Permissions.ProductsRead)
+  compatibilityOptions(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CompatibilityOption[]> {
+    return this.compatibilityService.options(id);
+  }
+
+  /** Reemplaza por completo los vínculos de compatibilidad del producto. */
+  @Put(':id/compatibilities')
+  @RequirePermissions(Permissions.ProductsUpdate)
+  setCompatibilities(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetCompatibilitiesDto,
+  ): Promise<CompatibilityLinkView[]> {
+    return this.compatibilityService.replace(id, dto);
   }
 
   // --- Sesiones de fotos (anidadas bajo el producto) ---

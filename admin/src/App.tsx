@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 
 import { AuthProvider } from "@/context/auth-provider"
+import { DragAndDropProvider } from "@/components/ui/sortable"
 import { AppLayout } from "@/components/app-layout"
 import { ProtectedRoute } from "@/components/protected-route"
 import { HomePage } from "@/pages/home-page"
@@ -18,6 +19,7 @@ import { StoreDetailPage } from "@/pages/store-detail-page"
 
 function App() {
   return (
+    <DragAndDropProvider>
     <BrowserRouter>
       <AuthProvider>
         <Routes>
@@ -46,6 +48,7 @@ function App() {
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+    </DragAndDropProvider>
   )
 }
 

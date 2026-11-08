@@ -116,7 +116,7 @@ export function validateEnv(config: Record<string, unknown>): EnvVars {
     BULL_PREFIX:
       config.BULL_PREFIX === undefined ? undefined : String(config.BULL_PREFIX),
     JWT_SECRET: String(config.JWT_SECRET),
-    JWT_EXPIRES_IN: String(config.JWT_EXPIRES_IN ?? '1h'),
+    JWT_EXPIRES_IN: String(config.JWT_EXPIRES_IN ?? '7d'),
     CUSTOMER_JWT_SECRET:
       config.CUSTOMER_JWT_SECRET === undefined
         ? undefined

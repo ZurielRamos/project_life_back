@@ -2,6 +2,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FontsModule } from '../fonts/fonts.module';
+import { PrintAreaCompatibility } from '../products/entities/print-area-compatibility.entity';
 import { PrintArea } from '../products/entities/print-area.entity';
 import { Product } from '../products/entities/product.entity';
 import { DesignsController } from './designs.controller';
@@ -22,6 +23,7 @@ import { Design } from './entities/design.entity';
       DesignSeo,
       Product,
       PrintArea,
+      PrintAreaCompatibility,
     ]),
     BullModule.registerQueue({ name: DESIGN_QUEUE }),
     FontsModule,

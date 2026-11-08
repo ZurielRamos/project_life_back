@@ -388,6 +388,27 @@ export interface PrintAreaInput {
   sudomockSmartObjectUuid?: string
 }
 
+/** Vínculo de compatibilidad: área de este producto ↔ área de otro producto. */
+export interface CompatibilityLink {
+  printAreaId: string
+  compatiblePrintAreaId: string
+  compatibleProductId: string
+  compatibleProductName: string
+  compatibleAreaName: string
+}
+
+/** Producto (con sus áreas) con el que se puede vincular compatibilidad. */
+export interface CompatibilityOption {
+  id: string
+  name: string
+  printAreas: { id: string; name: string }[]
+}
+
+/** Entrada para reemplazar las compatibilidades del producto. */
+export interface SetCompatibilitiesPayload {
+  links: { printAreaId: string; compatiblePrintAreaId: string }[]
+}
+
 export interface SetPrintAreasPayload {
   printAreas: PrintAreaInput[]
 }
@@ -545,6 +566,8 @@ export interface GenerateDesignPayload {
   placements: PlacementInput[]
   /** Área de impresión principal (id de PrintArea); sus renders van primero. */
   mainPrintAreaId?: string
+  /** Otros productos (compatibles) para los que crear el mismo diseño. */
+  compatibleProducts?: { productId: string; colorIds: string[] }[]
   /** Si el diseño tiene copyright. */
   hasCopyright: boolean
   /** Colores (ids del producto) a generar, en orden. */
@@ -910,12 +933,37 @@ export interface CategoriesSection extends HomeSectionBase {
   tiles: CategoryTileConfig[]
 }
 
+export type FeaturedSort =
+  | "newest"
+  | "oldest"
+  | "price-asc"
+  | "price-desc"
+  | "random"
+
 export interface FeaturedSection extends HomeSectionBase {
   type: "featured"
   title: string
   subtitle: string
+  /** auto = consulta con filtros; manual = diseños elegidos, en orden. */
+  mode: "auto" | "manual"
+  /** Clave del ajuste administrable; vacío = todos. */
+  fit: string
+  category: string
+  /** Búsqueda por texto. */
+  query: string
+  /** Producto base; vacío = todos. */
+  productId: string
+  sort: FeaturedSort
+  /** Diseños elegidos (modo manual), en orden. */
+  designIds: string[]
+  /** Máximo de productos (2 a 24). */
   limit: number
-  fit: SiteFit | ""
+  /** Columnas en escritorio. */
+  columns: 3 | 4 | 5
+  /** Imagen de la tarjeta: posición 1, 2, 3 o aleatoria. */
+  image: "1" | "2" | "3" | "random"
+  /** En aleatoria, posición excluida (0 = ninguna). */
+  randomExclude: 0 | 1 | 2 | 3
   ctaLabel: string
   ctaUrl: string
 }

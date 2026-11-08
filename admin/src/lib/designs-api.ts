@@ -1,5 +1,5 @@
 // Llamadas al módulo de diseños de la API.
-import { ApiError, apiFetch, getToken } from "@/lib/api"
+import { ApiError, apiFetch, getToken, notifyUnauthorized } from "@/lib/api"
 import type {
   Design,
   DesignSeoView,
@@ -120,6 +120,7 @@ export async function downloadDesignZip(id: string): Promise<void> {
   const res = await fetch(`${API_URL}/designs/${id}/download`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   })
+  if (res.status === 401 && token) notifyUnauthorized()
   if (!res.ok) {
     throw new ApiError(
       `No se pudo descargar el diseño (${res.status})`,

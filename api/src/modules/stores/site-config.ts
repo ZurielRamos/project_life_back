@@ -160,12 +160,37 @@ export interface CategoriesSection extends HomeSectionBase {
   tiles: CategoryTileConfig[];
 }
 
+export type FeaturedSort =
+  'newest' | 'oldest' | 'price-asc' | 'price-desc' | 'random';
+
+/**
+ * Productos destacados. En modo "auto" se arma una consulta con los filtros;
+ * en modo "manual" se muestran los diseños elegidos, en ese orden.
+ */
 export interface FeaturedSection extends HomeSectionBase {
   type: 'featured';
   title: string;
   subtitle: string;
+  mode: 'auto' | 'manual';
+  /** Clave del ajuste (fit) administrable; vacío = todos. */
+  fit: string;
+  /** Categoría del producto (texto); vacío = todas. */
+  category: string;
+  /** Búsqueda por texto en el nombre del diseño o del producto. */
+  query: string;
+  /** Producto base (uuid); vacío = todos. */
+  productId: string;
+  sort: FeaturedSort;
+  /** Diseños elegidos a mano (modo manual), en orden. */
+  designIds: string[];
+  /** Máximo de productos a mostrar. */
   limit: number;
-  fit: ProductFitKey | '';
+  /** Columnas de la cuadrícula en escritorio. */
+  columns: 3 | 4 | 5;
+  /** Imagen de la tarjeta: posición 1, 2, 3 o aleatoria. */
+  image: '1' | '2' | '3' | 'random';
+  /** En aleatoria, posición que nunca se elige (0 = ninguna). */
+  randomExclude: 0 | 1 | 2 | 3;
   ctaLabel: string;
   ctaUrl: string;
 }
@@ -227,6 +252,8 @@ const MAX_FAQS = 12;
 const MAX_PAGES = 10;
 const MAX_HOME_SECTIONS = 12;
 const MAX_TILES = 8;
+/** Máximo de productos en una sección de destacados. */
+const MAX_FEATURED = 24;
 const MAX_CHIPS = 8;
 const MAX_SUGGESTIONS = 10;
 const MAX_PAGE_CONTENT = 10_000;
@@ -705,17 +732,44 @@ function normSection(v: unknown, index: number): HomeSection | null {
         type: 'categories',
         tiles: list(v.tiles, MAX_TILES, normTile),
       };
-    case 'featured':
+    case 'featured': {
+      const UUID =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const uuid = (x: unknown) => {
+        const id = str(x, 36).toLowerCase();
+        return UUID.test(id) ? id : '';
+      };
+      const designIds = [
+        ...new Set(list(v.designIds, MAX_FEATURED, (x) => uuid(x) || null)),
+      ];
+      const columns = int(v.columns, 3, 5, 4);
       return {
         ...base,
         type: 'featured',
         title: str(v.title, 80),
         subtitle: str(v.subtitle, 200),
-        limit: int(v.limit, 2, 12, 8),
-        fit: oneOf(v.fit, ['', ...FITS] as const, ''),
+        mode: oneOf(v.mode, ['auto', 'manual'] as const, 'auto'),
+        // Los ajustes son administrables: se valida el formato de la clave.
+        fit: /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(str(v.fit, 60))
+          ? str(v.fit, 60)
+          : '',
+        category: str(v.category, 60),
+        query: str(v.query, 80),
+        productId: uuid(v.productId),
+        sort: oneOf(
+          v.sort,
+          ['newest', 'oldest', 'price-asc', 'price-desc', 'random'] as const,
+          'newest',
+        ),
+        designIds,
+        limit: int(v.limit, 2, MAX_FEATURED, 8),
+        columns: columns as 3 | 4 | 5,
+        image: oneOf(v.image, ['1', '2', '3', 'random'] as const, '1'),
+        randomExclude: int(v.randomExclude, 0, 3, 0) as 0 | 1 | 2 | 3,
         ctaLabel: str(v.ctaLabel, 40),
         ctaUrl: link(v.ctaUrl) || '/tienda',
       };
+    }
     case 'banner':
       return {
         ...base,

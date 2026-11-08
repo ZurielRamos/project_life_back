@@ -65,7 +65,7 @@ export class AuthService {
     const payload: JwtPayload = { sub: userId, email };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_SECRET') ?? 'change_me',
-      expiresIn: this.configService.get<string>('JWT_EXPIRES_IN') ?? '1h',
+      expiresIn: this.configService.get<string>('JWT_EXPIRES_IN') ?? '7d',
     });
 
     return { accessToken, user: toUserView(userEntity) };

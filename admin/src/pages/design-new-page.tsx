@@ -21,7 +21,11 @@ import {
   uploadDesignImage,
 } from "@/lib/designs-api"
 import { createFont, listFonts } from "@/lib/fonts-api"
-import { getProduct, listProducts } from "@/lib/products-api"
+import {
+  getProduct,
+  getProductCompatibilities,
+  listProducts,
+} from "@/lib/products-api"
 import { fileToDataUri } from "@/lib/file"
 import {
   computeAnchor,
@@ -32,6 +36,7 @@ import {
   type TextAlign,
 } from "@/lib/svg-template"
 import type {
+  CompatibilityLink,
   DesignArea,
   DesignPrintArea,
   DesignSeoView,
@@ -129,6 +134,17 @@ export function DesignNewPage() {
   // Área de impresión principal elegida (id de PrintArea).
   const [mainAreaId, setMainAreaId] = useState<string | null>(null)
   // Copyright del diseño: null = aún sin elegir (es obligatorio).
+  // Compatibilidades del producto y productos extra elegidos para replicar.
+  const [compatLinks, setCompatLinks] = useState<CompatibilityLink[]>([])
+  // Productos extra elegidos -> colores elegidos (ids del producto destino,
+  // en orden de selección), y el detalle de cada uno (para listar sus colores).
+  const [targetState, setTargetState] = useState<
+    Record<string, { order: string[]; active: string[] }>
+  >({})
+  const [targetProducts, setTargetProducts] = useState<Record<string, Product>>(
+    {}
+  )
+  const [loadingTarget, setLoadingTarget] = useState<string | null>(null)
   const [hasCopyright, setHasCopyright] = useState<boolean | null>(null)
   const [colorOrder, setColorOrder] = useState<string[]>([])
   const [activeColorIds, setActiveColorIds] = useState<Set<string>>(new Set())
@@ -197,8 +213,14 @@ export function DesignNewPage() {
     setLoadingProduct(true)
     setError(null)
     try {
-      const data = await getProduct(pid)
+      const [data, links] = await Promise.all([
+        getProduct(pid),
+        getProductCompatibilities(pid).catch(() => [] as CompatibilityLink[]),
+      ])
       setProduct(data)
+      setCompatLinks(links)
+      setTargetState({})
+      setTargetProducts({})
       const colorIds = (data.colors ?? []).map((c) => c.id)
       setColorOrder(colorIds)
       setActiveColorIds(new Set(colorIds))
@@ -258,6 +280,68 @@ export function DesignNewPage() {
       ...next,
     ])
     setSelectedKey(null)
+  }
+
+  /**
+   * Activa/desactiva un producto compatible. Al activarlo carga sus colores;
+   * los colores se eligen manualmente, por producto (ninguno preseleccionado).
+   */
+  async function toggleTarget(targetId: string) {
+    if (targetId in targetState) {
+      setTargetState((prev) => {
+        const next = { ...prev }
+        delete next[targetId]
+        return next
+      })
+      return
+    }
+    setLoadingTarget(targetId)
+    setError(null)
+    try {
+      const target = targetProducts[targetId] ?? (await getProduct(targetId))
+      setTargetProducts((prev) => ({ ...prev, [targetId]: target }))
+      setTargetState((prev) => ({
+        ...prev,
+        [targetId]: { order: target.colors.map((c) => c.id), active: [] },
+      }))
+    } catch (err) {
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "No se pudo cargar el producto compatible."
+      )
+    } finally {
+      setLoadingTarget(null)
+    }
+  }
+
+  function toggleTargetColor(targetId: string, colorId: string) {
+    setTargetState((prev) => {
+      const cur = prev[targetId]
+      if (!cur) return prev
+      return {
+        ...prev,
+        [targetId]: {
+          ...cur,
+          active: cur.active.includes(colorId)
+            ? cur.active.filter((c) => c !== colorId)
+            : [...cur.active, colorId],
+        },
+      }
+    })
+  }
+
+  function moveTargetColor(targetId: string, colorId: string, delta: number) {
+    setTargetState((prev) => {
+      const cur = prev[targetId]
+      if (!cur) return prev
+      const index = cur.order.indexOf(colorId)
+      const to = index + delta
+      if (index === -1 || to < 0 || to >= cur.order.length) return prev
+      const order = [...cur.order]
+      ;[order[index], order[to]] = [order[to], order[index]]
+      return { ...prev, [targetId]: { ...cur, order } }
+    })
   }
 
   function toggleColor(colorId: string) {
@@ -631,6 +715,14 @@ export function DesignNewPage() {
         return
       }
     }
+    // Cada producto compatible exige elegir sus colores (si los tiene).
+    for (const t of chosenTargets) {
+      const hasColors = (targetProducts[t.id]?.colors ?? []).length > 0
+      if (hasColors && targetState[t.id].active.length === 0) {
+        setError(`Elige al menos un color para ${t.name}.`)
+        return
+      }
+    }
     setGenerating(true)
     setError(null)
     try {
@@ -638,6 +730,12 @@ export function DesignNewPage() {
         productId,
         hasCopyright,
         mainPrintAreaId: anchoredAreas.length > 0 ? effectiveMainId! : undefined,
+        compatibleProducts: chosenTargets.map((t) => ({
+          productId: t.id,
+          colorIds: targetState[t.id].order.filter((c) =>
+            targetState[t.id].active.includes(c)
+          ),
+        })),
         placements: placements.map((p, index) => {
           const area = areaByUuid.get(p.printAreaId)
           return {
@@ -680,6 +778,24 @@ export function DesignNewPage() {
     printAreas.flatMap((pa) =>
       pa.objects.map((o) => [o.smartObjectUuid, o] as const)
     )
+  )
+  // Productos compatibles con el área principal (a los que se puede replicar).
+  const effectiveMainAreaId =
+    printAreas.length === 1 && printAreas[0].id !== "legacy"
+      ? printAreas[0].id
+      : mainAreaId
+  const compatibleTargets = effectiveMainAreaId
+    ? [
+        ...new Map(
+          compatLinks
+            .filter((l) => l.printAreaId === effectiveMainAreaId)
+            .map((l) => [l.compatibleProductId, l.compatibleProductName])
+        ),
+      ].map(([id, name]) => ({ id, name }))
+    : []
+  // Productos extra activados (con su detalle ya cargado).
+  const chosenTargets = compatibleTargets.filter(
+    (t) => t.id in targetState && targetProducts[t.id]
   )
   const colors = product?.colors ?? []
   const colorById = new Map(colors.map((c) => [c.id, c]))
@@ -792,6 +908,53 @@ export function DesignNewPage() {
         </p>
       </div>
 
+      {/* Replicar el diseño en otros productos compatibles. */}
+      {product && compatLinks.length > 0 && (
+        <div className="grid max-w-2xl gap-2">
+          <Label id="design-compat-label">Crear también para</Label>
+          {!effectiveMainAreaId ? (
+            <p className="text-xs text-neutral-500">
+              Marca el área principal para ver los productos compatibles.
+            </p>
+          ) : compatibleTargets.length === 0 ? (
+            <p className="text-xs text-neutral-500">
+              Ningún producto es compatible con esta área.
+            </p>
+          ) : (
+            <div
+              role="group"
+              aria-labelledby="design-compat-label"
+              className="flex flex-wrap gap-2"
+            >
+              {compatibleTargets.map((target) => {
+                const on = target.id in targetState
+                return (
+                  <Button
+                    key={target.id}
+                    data-keep-selection
+                    type="button"
+                    size="sm"
+                    variant={on ? "default" : "outline"}
+                    aria-pressed={on}
+                    disabled={loadingTarget === target.id}
+                    onClick={() => void toggleTarget(target.id)}
+                  >
+                    {loadingTarget === target.id && (
+                      <Loader2 className="size-4 animate-spin" />
+                    )}
+                    {target.name}
+                  </Button>
+                )
+              })}
+            </div>
+          )}
+          <p className="text-xs text-neutral-500">
+            Se crea un diseño independiente por cada producto, con la imagen
+            ajustada a su área compatible.
+          </p>
+        </div>
+      )}
+
       {loadingProduct ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="size-6 animate-spin text-neutral-400" />
@@ -807,6 +970,12 @@ export function DesignNewPage() {
             <section className="rounded-2xl border bg-white p-4">
               <h2 className="mb-1 text-sm font-semibold text-neutral-900">
                 Colores a generar
+                {chosenTargets.length > 0 && (
+                  <span className="font-normal text-neutral-500">
+                    {" "}
+                    · {product.name}
+                  </span>
+                )}
               </h2>
               {colors.length === 0 ? (
                 <p className="text-xs text-neutral-500">
@@ -883,6 +1052,105 @@ export function DesignNewPage() {
                 </>
               )}
             </section>
+
+            {/* Colores de cada producto compatible, elegidos por separado. */}
+            {chosenTargets.map((t) => {
+              const tProduct = targetProducts[t.id]
+              const state = targetState[t.id]
+              return (
+                <section
+                  key={t.id}
+                  data-keep-selection
+                  className="rounded-2xl border bg-white p-4"
+                >
+                  <h2 className="mb-1 text-sm font-semibold text-neutral-900">
+                    Colores a generar
+                    <span className="font-normal text-neutral-500">
+                      {" "}
+                      · {t.name}
+                    </span>
+                  </h2>
+                  {tProduct.colors.length === 0 ? (
+                    <p className="text-xs text-neutral-500">
+                      Este producto no tiene colores configurados. Se generará
+                      un render sin color.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="mb-3 text-xs text-neutral-500">
+                        Elige los colores de este producto y ordénalos.
+                      </p>
+                      <div className="flex flex-col gap-1.5">
+                        {state.order.map((colorId, index) => {
+                          const color = tProduct.colors.find(
+                            (c) => c.id === colorId
+                          )
+                          if (!color) return null
+                          const active = state.active.includes(colorId)
+                          return (
+                            <div
+                              key={colorId}
+                              className={
+                                "flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors " +
+                                (active
+                                  ? "border-neutral-900 bg-neutral-50"
+                                  : "border-neutral-200 opacity-60")
+                              }
+                            >
+                              <div className="flex flex-col">
+                                <button
+                                  type="button"
+                                  aria-label="Subir"
+                                  disabled={index === 0}
+                                  onClick={() =>
+                                    moveTargetColor(t.id, colorId, -1)
+                                  }
+                                  className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
+                                >
+                                  <ChevronUp className="size-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Bajar"
+                                  disabled={index === state.order.length - 1}
+                                  onClick={() =>
+                                    moveTargetColor(t.id, colorId, 1)
+                                  }
+                                  className="text-neutral-400 hover:text-neutral-900 disabled:opacity-30"
+                                >
+                                  <ChevronDown className="size-3.5" />
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleTargetColor(t.id, colorId)}
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm"
+                              >
+                                <span
+                                  className="size-4 shrink-0 rounded-full border border-black/10"
+                                  style={{ backgroundColor: color.hex }}
+                                />
+                                <span className="min-w-0 flex-1 truncate text-neutral-700">
+                                  {color.name}
+                                </span>
+                                <span
+                                  className={
+                                    "size-3.5 shrink-0 rounded-full border " +
+                                    (active
+                                      ? "border-neutral-900 bg-neutral-900"
+                                      : "border-neutral-300")
+                                  }
+                                />
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
+                </section>
+              )
+            })}
           </aside>
 
           {/* Columna derecha: áreas + canvas de edición */}

@@ -1,27 +1,26 @@
-import { useState } from "react"
+import { useContext, useState } from "react"
 import {
-  ArrowDown,
-  ArrowUp,
   ChevronDown,
   ChevronUp,
+  Eye,
+  GripVertical,
   Image as ImageIcon,
+  Info,
   LayoutGrid,
   PanelTop,
   Plus,
   Sparkles,
-  Trash2,
   Type,
   type LucideIcon,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
+import { SortableList } from "@/components/ui/sortable"
 import type {
   BannerSection,
   CategoriesSection,
   CategoryTileConfig,
   DefaultTileImage,
-  FeaturedSection,
   HeroSection,
   HomeSection,
   TextSection,
@@ -33,13 +32,17 @@ import {
   ImageField,
   LinkField,
   LinkList,
-  NumberField,
+  RemoveItemButton,
   RepeatableList,
+  Segmented,
   SelectField,
+  type SelectOption,
   SwitchField,
   TextAreaField,
   TextField,
 } from "./fields"
+import { FeaturedFields } from "./featured-editor"
+import { SiteEditorContext } from "./site-context"
 
 interface Props {
   value: { sections: HomeSection[] }
@@ -50,35 +53,47 @@ type SectionType = HomeSection["type"]
 
 const TYPE_META: Record<
   SectionType,
-  { label: string; description: string; icon: LucideIcon; removable: boolean }
+  {
+    label: string
+    description: string
+    /** Explicación que se muestra al abrir la sección. */
+    help: string
+    icon: LucideIcon
+    removable: boolean
+  }
 > = {
   hero: {
     label: "Portada",
     description: "Imagen principal con título, buscador y atajos.",
+    help: "Es lo primero que ve el cliente al entrar. Usa un título corto que diga qué vendes y una imagen de buena calidad. El buscador lleva al catálogo con lo que escriban.",
     icon: ImageIcon,
     removable: false,
   },
   categories: {
     label: "Categorías",
     description: "Bloques grandes que llevan a cada sección del catálogo.",
+    help: "Cada bloque es una puerta de entrada a una parte del catálogo (Mujer, Hombre, Kids…). Ocupan toda la pantalla, así que conviene mostrar solo las principales.",
     icon: LayoutGrid,
     removable: false,
   },
   featured: {
     label: "Productos destacados",
-    description: "Cuadrícula con los diseños más recientes de la tienda.",
+    description: "Una vitrina de productos: automática o elegida a mano.",
+    help: "Muestra productos de la tienda en una cuadrícula (en el móvil, en un carrusel que se desliza). Puedes dejar que se llene sola con un criterio o elegir los productos uno por uno.",
     icon: Sparkles,
     removable: true,
   },
   banner: {
     label: "Banner",
     description: "Imagen con título, texto y botón.",
+    help: "Ideal para promociones, lanzamientos o una colección. Si no subes imagen se muestra un fondo liso con tu color de marca.",
     icon: PanelTop,
     removable: true,
   },
   text: {
     label: "Bloque de texto",
     description: "Título y texto libre (sobre la marca, mensajes, etc.).",
+    help: "Para contar quiénes son, cómo trabajan o cualquier mensaje. Admite formato simple: subtítulos, negrita, listas y enlaces.",
     icon: Type,
     removable: true,
   },
@@ -99,8 +114,17 @@ function createSection(type: SectionType): HomeSection {
         type,
         title: "Lo más nuevo",
         subtitle: "",
-        limit: 8,
+        mode: "auto",
         fit: "",
+        category: "",
+        query: "",
+        productId: "",
+        sort: "newest",
+        designIds: [],
+        limit: 8,
+        columns: 4,
+        image: "1",
+        randomExclude: 0,
         ctaLabel: "Ver todo",
         ctaUrl: "/tienda",
       }
@@ -147,25 +171,15 @@ function summary(section: HomeSection): string {
 export function HomeEditor({ value, onChange }: Props) {
   const sections = value.sections
   const [openId, setOpenId] = useState<string | null>(sections[0]?.id ?? null)
-  const [toAdd, setToAdd] = useState<SectionType>("featured")
+  const { readOnly } = useContext(SiteEditorContext)
 
   const setSections = (next: HomeSection[]) => onChange({ sections: next })
-
-  function update(index: number, section: HomeSection) {
+  const update = (index: number, section: HomeSection) =>
     setSections(sections.map((s, i) => (i === index ? section : s)))
-  }
-  function move(index: number, delta: -1 | 1) {
-    const target = index + delta
-    if (target < 0 || target >= sections.length) return
-    const next = [...sections]
-    ;[next[index], next[target]] = [next[target], next[index]]
-    setSections(next)
-  }
-  function remove(index: number) {
+  const remove = (index: number) =>
     setSections(sections.filter((_, i) => i !== index))
-  }
-  function add() {
-    const section = createSection(toAdd)
+  function add(type: SectionType) {
+    const section = createSection(type)
     setSections([...sections, section])
     setOpenId(section.id)
   }
@@ -174,29 +188,50 @@ export function HomeEditor({ value, onChange }: Props) {
     <div className="flex flex-col gap-4">
       <Card
         title="Secciones de la página de inicio"
-        description="Ordena, activa y edita las secciones. Se muestran de arriba hacia abajo, entre el encabezado y el pie de página."
+        description="La página de inicio se arma con estas secciones, de arriba hacia abajo, entre el encabezado y el pie de página."
         className="gap-3"
       >
-        <ul className="flex flex-col gap-3">
-          {sections.map((section, index) => {
+        <ul className="grid gap-1.5 rounded-xl bg-neutral-50 p-3 text-xs text-neutral-600 sm:grid-cols-3">
+          <li className="flex items-start gap-2">
+            <GripVertical className="mt-px size-3.5 shrink-0 text-neutral-400" aria-hidden="true" />
+            <span><strong className="font-medium text-neutral-800">Ordena</strong> arrastrando desde ⋮⋮.</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <Eye className="mt-px size-3.5 shrink-0 text-neutral-400" aria-hidden="true" />
+            <span><strong className="font-medium text-neutral-800">Oculta</strong> una sección con su interruptor sin perder lo que configuraste.</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <ChevronDown className="mt-px size-3.5 shrink-0 text-neutral-400" aria-hidden="true" />
+            <span><strong className="font-medium text-neutral-800">Edita</strong> haciendo clic en su nombre.</span>
+          </li>
+        </ul>
+
+        <SortableList
+          items={sections}
+          onReorder={setSections}
+          itemLabel="sección"
+          getItemName={(s) => TYPE_META[s.type].label}
+          disabled={readOnly}
+          className="flex flex-col gap-3"
+          renderItem={(section, { handle, index }) => {
             const meta = TYPE_META[section.type]
             const Icon = meta.icon
             const open = openId === section.id
             return (
-              <li
-                key={section.id}
+              <div
                 className={cn(
                   "rounded-2xl border bg-white",
                   !section.enabled && "bg-neutral-50"
                 )}
               >
-                <div className="flex items-center gap-2 p-3">
+                <div className="flex items-center gap-1.5 p-2 pr-3">
+                  {handle}
                   <button
                     type="button"
                     onClick={() => setOpenId(open ? null : section.id)}
                     aria-expanded={open}
                     aria-controls={`home-section-${section.id}`}
-                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 text-left focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none"
                   >
                     <span
                       className={cn(
@@ -209,10 +244,13 @@ export function HomeEditor({ value, onChange }: Props) {
                       <Icon className="size-4" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-neutral-900">
+                      <span className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
+                        <span className="text-xs font-medium text-neutral-400">
+                          {index + 1}.
+                        </span>
                         {meta.label}
                         {!section.enabled && (
-                          <span className="ml-2 text-xs font-normal text-neutral-500">
+                          <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-[10px] font-medium text-neutral-600 uppercase">
                             Oculta
                           </span>
                         )}
@@ -232,12 +270,14 @@ export function HomeEditor({ value, onChange }: Props) {
                     type="button"
                     role="switch"
                     aria-checked={section.enabled}
-                    aria-label={`Mostrar sección ${meta.label}`}
+                    aria-label={`Mostrar la sección ${meta.label} en la tienda`}
+                    title={section.enabled ? "Visible en la tienda" : "Oculta en la tienda"}
+                    disabled={readOnly}
                     onClick={() =>
                       update(index, { ...section, enabled: !section.enabled })
                     }
                     className={cn(
-                      "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+                      "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none disabled:opacity-50",
                       section.enabled ? "bg-neutral-900" : "bg-neutral-300"
                     )}
                   >
@@ -248,39 +288,11 @@ export function HomeEditor({ value, onChange }: Props) {
                       )}
                     />
                   </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    aria-label={`Subir ${meta.label}`}
-                    disabled={index === 0}
-                    onClick={() => move(index, -1)}
-                  >
-                    <ArrowUp className="size-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    aria-label={`Bajar ${meta.label}`}
-                    disabled={index === sections.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    <ArrowDown className="size-4" />
-                  </Button>
                   {meta.removable && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-destructive hover:text-destructive size-8"
-                      aria-label={`Eliminar ${meta.label}`}
-                      onClick={() => remove(index)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    <RemoveItemButton
+                      label={`la sección ${meta.label}`}
+                      onRemove={() => remove(index)}
+                    />
                   )}
                 </div>
 
@@ -289,42 +301,62 @@ export function HomeEditor({ value, onChange }: Props) {
                     id={`home-section-${section.id}`}
                     className="flex flex-col gap-4 border-t p-4"
                   >
+                    <p className="flex items-start gap-2 rounded-xl bg-sky-50 p-3 text-xs leading-relaxed text-sky-900">
+                      <Info className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+                      {meta.help}
+                    </p>
                     <SectionBody
                       section={section}
                       onChange={(s) => update(index, s)}
                     />
                   </div>
                 )}
-              </li>
+              </div>
             )
-          })}
-        </ul>
-
-        <div className="flex flex-wrap items-end gap-3 border-t pt-4">
-          <SelectField<SectionType>
-            label="Agregar sección"
-            value={toAdd}
-            onChange={setToAdd}
-            options={ADDABLE.map((t) => ({
-              value: t,
-              label: TYPE_META[t].label,
-            }))}
-            className="w-64"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            disabled={sections.length >= 12}
-            onClick={add}
-          >
-            <Plus className="size-4" />
-            Agregar
-          </Button>
-          <p className="pb-2 text-xs text-neutral-500">
-            {TYPE_META[toAdd].description}
-          </p>
-        </div>
+          }}
+        />
       </Card>
+
+      {!readOnly && (
+        <Card
+          title="Agregar una sección"
+          description="Se agrega al final de la página; luego arrástrala al lugar que quieras."
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            {ADDABLE.map((type) => {
+              const meta = TYPE_META[type]
+              const Icon = meta.icon
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  disabled={sections.length >= 12}
+                  onClick={() => add(type)}
+                  className="group flex flex-col items-start gap-2 rounded-xl border bg-white p-4 text-left transition-colors hover:border-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:outline-none disabled:opacity-50"
+                >
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700 group-hover:bg-neutral-900 group-hover:text-white">
+                    <Icon className="size-4" />
+                  </span>
+                  <span className="text-sm font-semibold text-neutral-900">
+                    {meta.label}
+                  </span>
+                  <span className="text-xs text-neutral-500">
+                    {meta.description}
+                  </span>
+                  <span className="mt-auto inline-flex items-center gap-1 pt-1 text-xs font-medium text-neutral-900">
+                    <Plus className="size-3.5" /> Agregar
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          {sections.length >= 12 && (
+            <p className="text-xs text-neutral-500">
+              Llegaste al máximo de 12 secciones.
+            </p>
+          )}
+        </Card>
+      )}
     </div>
   )
 }
@@ -398,18 +430,27 @@ function HeroFields({
         value={section.searchPlaceholder}
         onChange={(searchPlaceholder) => set({ searchPlaceholder })}
         maxLength={80}
+        placeholder="Quiero una camiseta minimalista…"
+        hint="El texto gris dentro del buscador, antes de que el cliente escriba. Dale una idea de qué puede buscar."
       />
       <TextAreaField
         label="Ejemplos que se escriben solos en el buscador"
         value={section.suggestions.join("\n")}
         onChange={(text) => set({ suggestions: text.split("\n") })}
         rows={4}
-        hint="Uno por línea (hasta 10)."
+        hint="Se van escribiendo y borrando solas dentro del buscador para inspirar al cliente. Una por línea (hasta 10)."
       />
       <div className="grid gap-2">
-        <p className="text-sm font-medium text-neutral-900">
-          Atajos populares
-        </p>
+        <div>
+          <p className="text-sm font-medium text-neutral-900">
+            Atajos populares
+          </p>
+          <p className="text-xs text-neutral-500">
+            Botones pequeños debajo del buscador con búsquedas frecuentes (por
+            ejemplo «Anime» → /tienda?q=anime). Ayudan a quien no sabe qué
+            buscar.
+          </p>
+        </div>
         <LinkList
           items={section.chips}
           onChange={(chips) => set({ chips })}
@@ -440,13 +481,13 @@ function HeroFields({
   )
 }
 
-const TILE_IMAGE_OPTIONS: { value: DefaultTileImage; label: string }[] = [
-  { value: "", label: "Sin imagen de respaldo" },
-  { value: "bg_mujer", label: "Mujer" },
-  { value: "bg_familia", label: "Familiar" },
-  { value: "bg_hombre", label: "Hombre" },
-  { value: "bg_hoodie", label: "Unisex (hoodie)" },
-  { value: "bg_kids", label: "Kids" },
+const TILE_IMAGE_OPTIONS: SelectOption<DefaultTileImage>[] = [
+  { value: "", label: "Ninguna", description: "Si no subes una imagen, el bloque queda en negro." },
+  { value: "bg_mujer", label: "Mujer", description: "Foto de ejemplo de la línea de mujer." },
+  { value: "bg_familia", label: "Familiar", description: "Foto de ejemplo de looks a juego." },
+  { value: "bg_hombre", label: "Hombre", description: "Foto de ejemplo de la línea de hombre." },
+  { value: "bg_hoodie", label: "Unisex (hoodie)", description: "Foto de ejemplo de básicos sin género." },
+  { value: "bg_kids", label: "Kids", description: "Foto de ejemplo de la línea infantil." },
 ]
 
 function CategoriesFields({
@@ -525,80 +566,15 @@ function CategoriesFields({
             />
           </FieldRow>
           <SelectField<DefaultTileImage>
-            label="Imagen de respaldo"
+            label="Foto de ejemplo (mientras no subas la tuya)"
             value={tile.defaultImage}
             onChange={(defaultImage) => update({ defaultImage })}
             options={TILE_IMAGE_OPTIONS}
-            hint="Se usa mientras no subas una imagen propia."
+            hint="Fotos incluidas para que la tienda se vea completa desde el primer día. Al subir tu imagen, esta deja de usarse."
           />
         </div>
       )}
     />
-  )
-}
-
-function FeaturedFields({
-  section,
-  onChange,
-}: {
-  section: FeaturedSection
-  onChange: (s: FeaturedSection) => void
-}) {
-  const set = (patch: Partial<FeaturedSection>) =>
-    onChange({ ...section, ...patch })
-  return (
-    <>
-      <FieldRow>
-        <TextField
-          label="Título"
-          value={section.title}
-          onChange={(title) => set({ title })}
-          maxLength={80}
-        />
-        <TextField
-          label="Subtítulo"
-          value={section.subtitle}
-          onChange={(subtitle) => set({ subtitle })}
-          maxLength={200}
-        />
-      </FieldRow>
-      <FieldRow>
-        <NumberField
-          label="Cantidad de productos"
-          value={section.limit}
-          onChange={(limit) => set({ limit })}
-          min={2}
-          max={12}
-        />
-        <SelectField<FeaturedSection["fit"]>
-          label="Mostrar solo"
-          value={section.fit}
-          onChange={(fit) => set({ fit })}
-          options={[
-            { value: "", label: "Todo el catálogo" },
-            { value: "women", label: "Mujer" },
-            { value: "family", label: "Familiar" },
-            { value: "men", label: "Hombre" },
-            { value: "unisex", label: "Unisex" },
-            { value: "kids", label: "Kids" },
-          ]}
-        />
-      </FieldRow>
-      <FieldRow>
-        <TextField
-          label="Texto del botón"
-          value={section.ctaLabel}
-          onChange={(ctaLabel) => set({ ctaLabel })}
-          maxLength={40}
-          hint="Vacío = sin botón."
-        />
-        <LinkField
-          label="Destino del botón"
-          value={section.ctaUrl}
-          onChange={(ctaUrl) => set({ ctaUrl })}
-        />
-      </FieldRow>
-    </>
   )
 }
 
@@ -640,8 +616,8 @@ function BannerFields({
           onChange={(buttonUrl) => set({ buttonUrl })}
         />
       </FieldRow>
-      <SelectField<BannerSection["align"]>
-        label="Alineación del texto"
+      <Segmented<BannerSection["align"]>
+        label="Posición del texto"
         value={section.align}
         onChange={(align) => set({ align })}
         options={[
@@ -649,6 +625,7 @@ function BannerFields({
           { value: "center", label: "Centro" },
           { value: "right", label: "Derecha" },
         ]}
+        hint="Coloca el texto donde no tape lo importante de la imagen."
       />
       <FieldRow>
         <ImageField
@@ -693,14 +670,15 @@ function TextFields({
         rows={8}
         hint="Formato: ## Subtítulo, **negrita**, *cursiva*, listas con «- » y enlaces [texto](url)."
       />
-      <SelectField<TextSection["align"]>
+      <Segmented<TextSection["align"]>
         label="Alineación"
         value={section.align}
         onChange={(align) => set({ align })}
         options={[
           { value: "left", label: "Izquierda" },
-          { value: "center", label: "Centro" },
+          { value: "center", label: "Centrado" },
         ]}
+        hint="Centrado queda mejor para textos cortos; a la izquierda, para textos largos."
       />
     </>
   )
