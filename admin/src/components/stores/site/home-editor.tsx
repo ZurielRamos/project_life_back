@@ -1,4 +1,4 @@
-import { useContext, useState } from "react"
+import { useContext, useState, type ReactNode } from "react"
 import {
   ChevronDown,
   ChevronUp,
@@ -21,6 +21,7 @@ import type {
   CategoriesSection,
   CategoryTileConfig,
   DefaultTileImage,
+  HeroHeight,
   HeroSection,
   HomeSection,
   TextSection,
@@ -394,8 +395,174 @@ function HeroFields({
   onChange: (s: HeroSection) => void
 }) {
   const set = (patch: Partial<HeroSection>) => onChange({ ...section, ...patch })
+  // Valores por defecto si la configuración guardada es anterior a estas opciones.
+  const s: HeroSection = { ...HERO_DEFAULTS, ...section }
+  const ctaPrimary = s.primaryCta ?? EMPTY_LINK
+  const ctaSecondary = s.secondaryCta ?? EMPTY_LINK
   return (
     <>
+      <HeroGroup
+        title="Tamaño"
+        description="Cuánto ocupa la portada al entrar. «Pantalla completa» llena toda la pantalla; «Mitad» deja ver lo que sigue sin bajar; «Según el contenido» se ajusta al texto."
+      >
+        <Segmented
+          label="Alto en computador"
+          value={s.height}
+          onChange={(height) => set({ height })}
+          options={HEIGHT_OPTIONS}
+        />
+        <Segmented
+          label="Alto en celular"
+          value={s.mobileHeight}
+          onChange={(mobileHeight) => set({ mobileHeight })}
+          options={HEIGHT_OPTIONS}
+          hint="Si el texto no cabe en el alto elegido, la portada crece lo justo para no cortarlo."
+        />
+      </HeroGroup>
+
+      <HeroGroup
+        title="Posición del texto"
+        description="Dónde se ubica el bloque de título, botones y buscador sobre la imagen. Úsalo para no tapar lo importante de la foto."
+      >
+        <FieldRow>
+          <Segmented
+            label="Horizontal"
+            value={s.align}
+            onChange={(align) => set({ align })}
+            options={[
+              { value: "left", label: "Izquierda" },
+              { value: "center", label: "Centro" },
+              { value: "right", label: "Derecha" },
+            ]}
+          />
+          <Segmented
+            label="Vertical"
+            value={s.vAlign}
+            onChange={(vAlign) => set({ vAlign })}
+            options={[
+              { value: "top", label: "Arriba" },
+              { value: "center", label: "Centro" },
+              { value: "bottom", label: "Abajo" },
+            ]}
+          />
+        </FieldRow>
+      </HeroGroup>
+
+      <HeroGroup
+        title="Estilo del texto"
+        description="Para que el texto se lea bien sobre cualquier foto. Con fotos claras usa texto oscuro; con fotos con mucho detalle, un fondo detrás del texto o la imagen oscurecida."
+      >
+        <FieldRow>
+          <Segmented
+            label="Color del texto"
+            value={s.textColor}
+            onChange={(textColor) => set({ textColor })}
+            options={[
+              { value: "light", label: "Claro" },
+              { value: "dark", label: "Oscuro" },
+            ]}
+          />
+          <Segmented
+            label="Fondo detrás del texto"
+            value={s.textPanel}
+            onChange={(textPanel) => set({ textPanel })}
+            options={[
+              { value: "glass", label: "Vidrio" },
+              { value: "solid", label: "Sólido" },
+              { value: "none", label: "Sin fondo" },
+            ]}
+          />
+        </FieldRow>
+        <Segmented
+          label="Oscurecer la imagen"
+          value={String(s.overlay)}
+          onChange={(v) => set({ overlay: Number(v) })}
+          options={[
+            { value: "0", label: "No" },
+            { value: "20", label: "Poco" },
+            { value: "40", label: "Medio" },
+            { value: "60", label: "Mucho" },
+          ]}
+          hint="Pone una capa sobre toda la foto. Con texto oscuro, la capa aclara en vez de oscurecer."
+        />
+      </HeroGroup>
+
+      <HeroGroup
+        title="Imagen"
+        description="La foto de fondo se recorta para llenar la portada. Elige qué parte debe verse siempre."
+      >
+        <FieldRow>
+          <ImageField
+            label="Imagen de fondo (computador)"
+            value={s.imageUrl}
+            onChange={(imageUrl) => set({ imageUrl })}
+            emptyLabel="Imagen por defecto"
+            hint="Apaisada, mínimo 1920×1080."
+          />
+          <ImageField
+            label="Imagen de fondo (celular)"
+            value={s.mobileImageUrl}
+            onChange={(mobileImageUrl) => set({ mobileImageUrl })}
+            emptyLabel="Imagen por defecto"
+            hint="Vertical, por ejemplo 1080×1920. Si la dejas vacía se usa la de computador."
+          />
+        </FieldRow>
+        <Segmented
+          label="Parte de la foto que se mantiene visible"
+          value={s.imagePosition}
+          onChange={(imagePosition) => set({ imagePosition })}
+          options={[
+            { value: "center", label: "Centro" },
+            { value: "top", label: "Arriba" },
+            { value: "bottom", label: "Abajo" },
+            { value: "left", label: "Izquierda" },
+            { value: "right", label: "Derecha" },
+          ]}
+          hint="Importa sobre todo con la portada a media altura, donde se recorta más."
+        />
+        <SwitchField
+          label="Acercamiento lento de la imagen"
+          description="La foto se acerca muy despacio para dar movimiento. En celular nunca se aplica."
+          checked={s.zoom}
+          onChange={(zoom) => set({ zoom })}
+        />
+      </HeroGroup>
+
+      <HeroGroup
+        title="Botones"
+        description="Opcionales. Aparecen debajo del subtítulo; un botón solo se muestra si tiene texto y destino. Útiles si la portada promociona algo puntual (por ejemplo «Ver colección»)."
+      >
+        <FieldRow>
+          <TextField
+            label="Botón principal: texto"
+            value={ctaPrimary.label}
+            onChange={(label) => set({ primaryCta: { ...ctaPrimary, label } })}
+            maxLength={60}
+            placeholder="Ver colección"
+          />
+          <LinkField
+            label="Botón principal: destino"
+            value={ctaPrimary.url}
+            onChange={(url) => set({ primaryCta: { ...ctaPrimary, url } })}
+          />
+        </FieldRow>
+        <FieldRow>
+          <TextField
+            label="Botón secundario: texto"
+            value={ctaSecondary.label}
+            onChange={(label) => set({ secondaryCta: { ...ctaSecondary, label } })}
+            maxLength={60}
+            placeholder="Personalizar"
+          />
+          <LinkField
+            label="Botón secundario: destino"
+            value={ctaSecondary.url}
+            onChange={(url) => set({ secondaryCta: { ...ctaSecondary, url } })}
+          />
+        </FieldRow>
+      </HeroGroup>
+
+      <HeroGroup title="Textos" description="El mensaje principal de la portada.">
       <TextField
         label="Frase superior"
         value={section.kicker}
@@ -425,6 +592,19 @@ function HeroFields({
         maxLength={240}
         rows={2}
       />
+      </HeroGroup>
+
+      <HeroGroup
+        title="Buscador"
+        description="Caja para que el cliente busque o describa el diseño que quiere. Si la apagas, también se ocultan los atajos populares."
+      >
+      <SwitchField
+        label="Mostrar buscador"
+        checked={s.showSearch}
+        onChange={(showSearch) => set({ showSearch })}
+      />
+      {s.showSearch && (
+      <>
       <TextField
         label="Texto del buscador"
         value={section.searchPlaceholder}
@@ -461,23 +641,63 @@ function HeroFields({
           newItem={{ label: "", url: "/tienda?q=" }}
         />
       </div>
-      <FieldRow>
-        <ImageField
-          label="Imagen de fondo (escritorio)"
-          value={section.imageUrl}
-          onChange={(imageUrl) => set({ imageUrl })}
-          emptyLabel="Imagen por defecto"
-          hint="Apaisada, mínimo 1920×1080."
-        />
-        <ImageField
-          label="Imagen de fondo (móvil)"
-          value={section.mobileImageUrl}
-          onChange={(mobileImageUrl) => set({ mobileImageUrl })}
-          emptyLabel="Imagen por defecto"
-          hint="Vertical, por ejemplo 1080×1920."
-        />
-      </FieldRow>
+      </>
+      )}
+      </HeroGroup>
+
+      <SwitchField
+        label="Mostrar «Explora nuestros productos»"
+        description="La flecha animada al pie de la portada que lleva a la sección siguiente."
+        checked={s.showScroll}
+        onChange={(showScroll) => set({ showScroll })}
+      />
     </>
+  )
+}
+
+const EMPTY_LINK = { label: "", url: "" }
+
+const HERO_DEFAULTS: Partial<HeroSection> = {
+  height: "full",
+  mobileHeight: "full",
+  align: "center",
+  vAlign: "center",
+  overlay: 0,
+  textPanel: "glass",
+  textColor: "light",
+  imagePosition: "center",
+  zoom: true,
+  showSearch: true,
+  showScroll: true,
+  primaryCta: EMPTY_LINK,
+  secondaryCta: EMPTY_LINK,
+}
+
+const HEIGHT_OPTIONS: { value: HeroHeight; label: string }[] = [
+  { value: "full", label: "Pantalla completa" },
+  { value: "large", label: "Tres cuartos" },
+  { value: "half", label: "Mitad" },
+  { value: "auto", label: "Según el contenido" },
+]
+
+/** Subgrupo con título y explicación dentro del editor de la portada. */
+function HeroGroup({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: ReactNode
+}) {
+  return (
+    <section className="grid gap-4 rounded-xl border border-neutral-200 p-4">
+      <div>
+        <h4 className="text-sm font-semibold text-neutral-900">{title}</h4>
+        <p className="text-xs text-neutral-500">{description}</p>
+      </div>
+      {children}
+    </section>
   )
 }
 

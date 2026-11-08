@@ -153,7 +153,27 @@ export interface HeroSection extends HomeSectionBase {
   chips: SiteLink[];
   imageUrl: string;
   mobileImageUrl: string;
+  /** Alto en escritorio y en móvil. */
+  height: HeroHeight;
+  mobileHeight: HeroHeight;
+  align: 'left' | 'center' | 'right';
+  vAlign: 'top' | 'center' | 'bottom';
+  /** Oscurecido sobre la imagen, 0–80 (%). */
+  overlay: number;
+  textPanel: 'glass' | 'solid' | 'none';
+  textColor: 'light' | 'dark';
+  /** Punto de la imagen que se mantiene visible al recortar. */
+  imagePosition: 'center' | 'top' | 'bottom' | 'left' | 'right';
+  zoom: boolean;
+  showSearch: boolean;
+  showScroll: boolean;
+  /** Botones opcionales (se muestran si tienen texto y destino). */
+  primaryCta: SiteLink;
+  secondaryCta: SiteLink;
 }
+
+export const HERO_HEIGHTS = ['full', 'large', 'half', 'auto'] as const;
+export type HeroHeight = (typeof HERO_HEIGHTS)[number];
 
 export interface CategoriesSection extends HomeSectionBase {
   type: 'categories';
@@ -528,6 +548,19 @@ function defaultHero(): HeroSection {
     ],
     imageUrl: '',
     mobileImageUrl: '',
+    height: 'full',
+    mobileHeight: 'full',
+    align: 'center',
+    vAlign: 'center',
+    overlay: 0,
+    textPanel: 'glass',
+    textColor: 'light',
+    imagePosition: 'center',
+    zoom: true,
+    showSearch: true,
+    showScroll: true,
+    primaryCta: { label: '', url: '' },
+    secondaryCta: { label: '', url: '' },
   };
 }
 
@@ -724,6 +757,27 @@ function normSection(v: unknown, index: number): HomeSection | null {
         chips: list(v.chips, MAX_CHIPS, siteLink),
         imageUrl: imageUrl(v.imageUrl),
         mobileImageUrl: imageUrl(v.mobileImageUrl),
+        height: oneOf(v.height, HERO_HEIGHTS, d.height),
+        mobileHeight: oneOf(v.mobileHeight, HERO_HEIGHTS, d.mobileHeight),
+        align: oneOf(v.align, ['left', 'center', 'right'] as const, d.align),
+        vAlign: oneOf(v.vAlign, ['top', 'center', 'bottom'] as const, d.vAlign),
+        overlay: int(v.overlay, 0, 80, d.overlay),
+        textPanel: oneOf(
+          v.textPanel,
+          ['glass', 'solid', 'none'] as const,
+          d.textPanel,
+        ),
+        textColor: oneOf(v.textColor, ['light', 'dark'] as const, d.textColor),
+        imagePosition: oneOf(
+          v.imagePosition,
+          ['center', 'top', 'bottom', 'left', 'right'] as const,
+          d.imagePosition,
+        ),
+        zoom: bool(v.zoom, d.zoom),
+        showSearch: bool(v.showSearch, d.showSearch),
+        showScroll: bool(v.showScroll, d.showScroll),
+        primaryCta: siteLink(v.primaryCta) ?? { label: '', url: '' },
+        secondaryCta: siteLink(v.secondaryCta) ?? { label: '', url: '' },
       };
     }
     case 'categories':
